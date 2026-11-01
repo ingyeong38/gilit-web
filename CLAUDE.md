@@ -7,7 +7,6 @@
 - `frontend/`: 서버 루트. `index.html`, `pages/`, `css/`, `js/`, `assets/`
 - `frontend/js/`: `config.js`, `api.js`, `auth.js`, `utils.js`, `components/`, `pages/`, `mock/`
 - `frontend/js/components/map.js`: 지금은 가짜 SVG 지도. 카카오맵 교체 시 `renderRouteMap`만 바꾼다
-- `docs/design-reference/`: Figma Make 원본 (참고용, 빌드에 쓰지 않음)
 - `backend/`: 언어·프레임워크 미정. 해민 담당
 - `docs/api-spec.md`: API 명세 가안
 
