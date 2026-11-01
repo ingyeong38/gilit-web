@@ -1,0 +1,30 @@
+:root {
+  --navy: #0B1F4B;
+  --blue: #2563EB;
+  --blue-light: #EAF2FF;
+  --bg: #F5F7FA;
+  --text: #1F2937;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+h1,
+p {
+  margin: 0;
+}

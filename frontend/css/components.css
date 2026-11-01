@@ -1,0 +1,64 @@
+/* 공통 헤더 */
+#site-header {
+  display: block;
+  background: #fff;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.site-header__logo {
+  color: var(--navy);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.site-header__link {
+  padding: 4px 2px;
+  border-bottom: 2px solid transparent;
+  color: var(--text);
+}
+
+.site-header__link.is-active {
+  border-bottom-color: var(--blue);
+  color: var(--blue);
+  font-weight: 700;
+}
+
+/* 버튼 */
+.btn {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--navy);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* 뼈대용 */
+.page-title {
+  margin-bottom: 20px;
+  color: var(--navy);
+  font-size: 28px;
+}
+
+.todo-box {
+  padding: 24px;
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.todo-box strong {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 10px;
+  border-radius: var(--radius);
+  background: var(--blue-light);
+  color: var(--blue);
+}
+
+.page-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 20px;
+}

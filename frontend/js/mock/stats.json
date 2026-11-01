@@ -1,0 +1,18 @@
+{
+  "dailyVisitors": [
+    { "date": "2026-10-25", "count": 42 },
+    { "date": "2026-10-26", "count": 58 },
+    { "date": "2026-10-27", "count": 63 },
+    { "date": "2026-10-28", "count": 51 },
+    { "date": "2026-10-29", "count": 70 },
+    { "date": "2026-10-30", "count": 84 },
+    { "date": "2026-10-31", "count": 47 }
+  ],
+  "popularDestinations": [
+    { "name": "판교역", "count": 128 },
+    { "name": "강남역", "count": 104 },
+    { "name": "김포공항", "count": 76 },
+    { "name": "서울역", "count": 61 },
+    { "name": "수원역", "count": 39 }
+  ]
+}

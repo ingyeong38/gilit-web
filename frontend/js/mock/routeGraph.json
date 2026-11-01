@@ -1,0 +1,9 @@
+[
+  { "departTime": "2026-11-02T07:00:00+09:00", "durationMin": 34 },
+  { "departTime": "2026-11-02T07:15:00+09:00", "durationMin": 36 },
+  { "departTime": "2026-11-02T07:30:00+09:00", "durationMin": 39 },
+  { "departTime": "2026-11-02T07:45:00+09:00", "durationMin": 41 },
+  { "departTime": "2026-11-02T08:00:00+09:00", "durationMin": 42 },
+  { "departTime": "2026-11-02T08:15:00+09:00", "durationMin": 47 },
+  { "departTime": "2026-11-02T08:30:00+09:00", "durationMin": 44 }
+]
