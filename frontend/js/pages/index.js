@@ -1,1 +1,3 @@
-// TODO: index 페이지 로직
+import { renderIcons } from "/js/components/icon.js";
+
+renderIcons();

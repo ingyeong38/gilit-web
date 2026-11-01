@@ -5,28 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>경로 결과 | 길잇</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
   <link rel="stylesheet" href="/css/pages/result.css" />
 </head>
 <body>
-  <header id="site-header"></header>
+  <div class="app">
+    <header class="header" id="site-header"></header>
+    <div class="page-transition">
+      <main class="results-page">
+        <div class="summary-bar">
+          <div class="summary-inner">
+            <div class="summary-route"><span class="summary-dot start"></span><b id="summary-from"></b><span class="summary-line"></span><span class="summary-dot end"></span><b id="summary-to"></b></div>
+            <div class="summary-meta">
+              <span><i data-icon="calendar" data-size="17"></i> <time id="summary-date"></time></span>
+              <span><i data-icon="clock" data-size="17"></i> <time id="summary-time"></time> 도착</span>
+              <span id="summary-buffer"></span>
+            </div>
+            <button class="btn btn-secondary" id="share-button" type="button"><i data-icon="link" data-size="17"></i> 경로 공유</button>
+            <a class="btn btn-secondary" id="edit-link" href="/pages/search.html"><i data-icon="menu" data-size="17"></i> 조건 수정</a>
+          </div>
+        </div>
+        <div class="results-shell">
+          <div class="results-heading">
+            <div><h1 class="page-title">추천 출발시각을 찾았어요</h1><p>실시간 교통 흐름과 도착 여유시간을 반영한 결과입니다.</p></div>
+            <span class="updated"><i></i> 방금 업데이트</span>
+          </div>
+          <div class="results-grid">
+            <div class="route-list" id="route-list"></div>
+            <div class="result-detail">
+              <div class="map" id="route-map"></div>
+              <section class="chart-card" id="duration-chart"></section>
+              <section class="ai-card">
+                <span class="ai-icon"><i data-icon="spark" data-size="24"></i></span>
+                <div><div class="ai-label">AI 경로 추천 요약</div><div class="ai-title" id="ai-title"></div><p id="ai-text"></p></div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
 
-  <main class="container">
-    <h1 class="page-title">경로 결과</h1>
-    <section class="todo-box">
-      <strong>TODO</strong>
-      <p>경로별 권장 출발시각, 지도, 출발시각별 소요시간 그래프</p>
-    </section>
-    <nav class="page-links">
-      <a href="/pages/search.html">다시 검색</a>
-      <a href="/pages/favorites.html">즐겨찾기·기록</a>
-    </nav>
-  </main>
-
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.js"></script>
   <script type="module" src="/js/components/header.js"></script>
   <script type="module" src="/js/pages/result.js"></script>
 </body>

@@ -1,1 +1,41 @@
-/* search 페이지 전용 스타일 */
+.search-page { padding: 54px 0 70px; }
+.search-heading { text-align: center; }
+.search-heading .page-title { margin-top: 16px; font-size: 32px; }
+.search-card { width: 760px; margin: 32px auto 0; padding: 30px; border: 1px solid var(--line); border-radius: 16px; background: var(--white); box-shadow: var(--shadow); }
+.route-inputs { display: grid; grid-template-columns: 16px 1fr 44px; gap: 14px; align-items: center; }
+.route-dots { height: 105px; display: flex; flex-direction: column; align-items: center; padding-top: 21px; }
+.route-dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--green); flex: none; }
+.route-dots i:last-child { background: var(--blue); }
+.route-dots span { width: 1px; height: 50px; border-left: 1px dashed #cbd3e0; }
+.fields-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.swap-button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); display: grid; place-items: center; color: var(--muted); cursor: pointer; margin-top: 24px; transition: .2s; }
+.swap-button:hover { color: var(--blue); border-color: #bad0fb; transform: rotate(180deg); }
+.autocomplete { position: absolute; top: 76px; left: 0; right: 0; z-index: 15; border: 1px solid var(--line); border-radius: 10px; background: var(--white); box-shadow: var(--shadow-hover); padding: 7px; }
+.autocomplete-label { color: var(--muted-2); font-size: 10px; padding: 6px 9px; }
+.autocomplete button { border: 0; background: none; width: 100%; padding: 8px 9px; display: flex; gap: 10px; text-align: left; border-radius: 7px; cursor: pointer; }
+.autocomplete button:hover { background: var(--blue-pale); }
+.autocomplete button > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); }
+.autocomplete b { display: block; font-size: 11px; }.autocomplete small { color: var(--muted); font-size: 9px; }
+.divider { height: 1px; background: var(--line); margin: 24px 0; }
+.date-time-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.buffer-row { margin-top: 23px; display: flex; align-items: flex-end; justify-content: space-between; }
+.buffer-row small { display: block; color: var(--muted); font-size: 10px; margin-top: 4px; }
+.segment-control { padding: 3px; display: flex; gap: 2px; background: var(--surface); border-radius: 9px; }
+.segment-control button { min-width: 56px; height: 32px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+.segment-control button.active { color: var(--blue); background: var(--white); font-weight: 700; box-shadow: 0 2px 7px rgba(15,31,61,.08); }
+.search-submit { width: 100%; height: 50px; margin-top: 25px; }
+.quick-places { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 20px; }
+.quick-places > span { color: var(--muted-2); font-size: 10px; margin-right: 3px; }
+.quick-places button { border: 1px solid var(--line); background: var(--white); border-radius: 999px; padding: 6px 11px; display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; cursor: pointer; }
+.quick-places button:hover { border-color: #bcd0f6; color: var(--blue); background: var(--blue-pale); }
+.recent-section { margin: 43px auto 0; width: 940px; }
+.section-row { display: flex; justify-content: space-between; align-items: flex-end; }
+.section-row > button { border: 0; background: transparent; color: var(--blue); font-size: 10px; display: flex; align-items: center; cursor: pointer; }
+.recent-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 15px; }
+.recent-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); padding: 15px; display: flex; align-items: center; gap: 11px; text-align: left; cursor: pointer; transition: .2s; }
+.recent-card:hover { border-color: #c3d4f4; box-shadow: var(--shadow); transform: translateY(-2px); }
+.recent-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface); color: var(--muted); flex: none; }
+.recent-main { flex: 1; min-width: 0; }.recent-main > div { display: flex; align-items: center; gap: 3px; font-size: 10px; white-space: nowrap; }.recent-main > span { color: var(--muted); font-size: 9px; }
+.recent-card > svg { color: var(--muted-2); }
+
+.section-row > a { color: var(--blue); font-size: 10px; display: flex; align-items: center; }

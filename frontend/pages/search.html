@@ -5,25 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>길찾기 | 길잇</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
   <link rel="stylesheet" href="/css/pages/search.css" />
 </head>
 <body>
-  <header id="site-header"></header>
-
-  <main class="container">
-    <h1 class="page-title">길찾기</h1>
-    <section class="todo-box">
-      <strong>TODO</strong>
-      <p>출발지·도착지·도착 희망 시각 입력 폼</p>
-    </section>
-    <nav class="page-links">
-      <a href="/pages/result.html">경로 결과 보기</a>
-    </nav>
-  </main>
+  <div class="app">
+    <header class="header" id="site-header"></header>
+    <div class="page-transition">
+      <main class="search-page page-shell">
+        <div class="search-heading">
+          <div class="eyebrow"><span><i data-icon="spark" data-size="14"></i></span> 늦지 않는 가장 쉬운 방법</div>
+          <h1 class="page-title">언제까지 도착해야 하나요?</h1>
+          <p>도착 희망 시각을 알려주시면 가장 좋은 출발 시각을 찾아드릴게요.</p>
+        </div>
+        <form class="search-card" id="search-form" novalidate>
+          <div class="route-inputs">
+            <div class="route-dots"><i></i><span></span><i></i></div>
+            <div class="fields-stack">
+              <label class="field">
+                <span>출발지</span>
+                <div class="input-wrap"><i data-icon="search" data-size="19"></i><input name="from" placeholder="출발지를 입력하세요" autocomplete="off" /></div>
+              </label>
+              <label class="field">
+                <span>목적지</span>
+                <div class="input-wrap"><i data-icon="location" data-size="19"></i><input name="to" placeholder="목적지를 입력하세요" autocomplete="off" /></div>
+              </label>
+            </div>
+            <button class="swap-button" id="swap-button" type="button" aria-label="출발지와 목적지 바꾸기"><i data-icon="swap"></i></button>
+          </div>
+          <div class="divider"></div>
+          <div class="date-time-grid">
+            <label class="field"><span>도착 날짜</span><div class="input-wrap"><i data-icon="calendar" data-size="19"></i><input type="date" name="date" /></div></label>
+            <label class="field"><span>도착 희망 시각</span><div class="input-wrap"><i data-icon="clock" data-size="19"></i><input type="time" name="time" /></div></label>
+          </div>
+          <div class="buffer-row">
+            <div><span class="field-label">여유시간</span><small>주차나 이동 시간을 고려해 미리 도착해요</small></div>
+            <div class="segment-control" id="buffer-control">
+              <button type="button" data-buffer="0">없음</button>
+              <button type="button" data-buffer="5">5분</button>
+              <button type="button" data-buffer="10">10분</button>
+              <button type="button" data-buffer="15">15분</button>
+            </div>
+          </div>
+          <button class="btn btn-primary search-submit" id="search-submit" type="submit"></button>
+          <div class="quick-places" id="quick-places"><span>즐겨찾기</span></div>
+        </form>
+        <section class="recent-section">
+          <div class="section-row">
+            <div><div class="list-title">최근 검색</div><p>다시 찾고 싶은 경로를 빠르게 확인하세요.</p></div>
+            <a href="/pages/favorites.html?tab=history">전체 기록 보기 <i data-icon="arrow" data-size="15"></i></a>
+          </div>
+          <div class="recent-grid" id="recent-grid"></div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script type="module" src="/js/components/header.js"></script>
   <script type="module" src="/js/pages/search.js"></script>

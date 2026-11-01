@@ -1,3 +1,8 @@
+import { getUser, login, logout } from "/js/auth.js";
+import { icon } from "/js/components/icon.js";
+import { openLoginModal } from "/js/components/loginModal.js";
+import { escapeHtml } from "/js/utils.js";
+
 // 경로 결과 화면은 길찾기 흐름의 일부이므로 "길찾기" 메뉴를 강조한다.
 const MENU = [
   { label: "길찾기", href: "/pages/search.html", activePaths: ["/pages/search.html", "/pages/result.html"] },
@@ -5,23 +10,61 @@ const MENU = [
   { label: "이용 통계", href: "/pages/stats.html", activePaths: ["/pages/stats.html"] },
 ];
 
+function renderAccount(user) {
+  if (!user) {
+    return '<button class="btn btn-secondary" type="button" data-action="login">로그인</button>';
+  }
+  const name = escapeHtml(user.name);
+  return `
+    <button class="profile-button" type="button" data-action="profile" aria-label="프로필 메뉴">
+      <span class="avatar">${escapeHtml(user.name.charAt(0))}</span>
+      <span>${name}</span>
+      ${icon("chevron", { size: 16 })}
+    </button>
+    <div class="profile-menu" hidden>
+      <button type="button">${icon("user", { size: 17 })} 내 정보</button>
+      <button type="button" data-action="logout">${icon("logout", { size: 17 })} 로그아웃</button>
+    </div>
+  `;
+}
+
 function renderHeader() {
   const header = document.getElementById("site-header");
   if (!header) return;
 
   const links = MENU.map(({ label, href, activePaths }) => {
     const isActive = activePaths.includes(location.pathname);
-    const activeAttrs = isActive ? ' aria-current="page"' : "";
-    return `<a class="site-header__link${isActive ? " is-active" : ""}" href="${href}"${activeAttrs}>${label}</a>`;
+    return `<a class="${isActive ? "active" : ""}" href="${href}"${isActive ? ' aria-current="page"' : ""}>${label}</a>`;
   }).join("");
 
   header.innerHTML = `
-    <div class="site-header__inner">
-      <a class="site-header__logo" href="/index.html">길잇</a>
-      <nav class="site-header__menu">${links}</nav>
-      <button class="btn site-header__login" type="button">로그인</button>
+    <div class="nav-shell">
+      <a class="logo" href="/index.html" aria-label="길잇 홈으로 이동">
+        <span class="logo-mark">${icon("route", { size: 21 })}</span>
+        <span>길잇</span>
+        <span class="logo-sub">Gilit</span>
+      </a>
+      <nav class="nav-menu">${links}</nav>
+      <div class="account">${renderAccount(getUser())}</div>
     </div>
   `;
+
+  header.querySelector('[data-action="login"]')?.addEventListener("click", () => {
+    openLoginModal({
+      onLogin: (provider) => {
+        login(provider);
+        renderHeader();
+      },
+    });
+  });
+  header.querySelector('[data-action="profile"]')?.addEventListener("click", () => {
+    const menu = header.querySelector(".profile-menu");
+    menu.hidden = !menu.hidden;
+  });
+  header.querySelector('[data-action="logout"]')?.addEventListener("click", () => {
+    logout();
+    renderHeader();
+  });
 }
 
 renderHeader();

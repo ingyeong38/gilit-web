@@ -3,29 +3,69 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>길잇</title>
+  <title>길잇 | Gilit</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
   <link rel="stylesheet" href="/css/pages/index.css" />
 </head>
 <body>
-  <header id="site-header"></header>
-
-  <main class="container">
-    <h1 class="page-title">길잇</h1>
-    <section class="todo-box">
-      <strong>TODO</strong>
-      <p>랜딩 화면: 서비스 소개</p>
-    </section>
-    <nav class="page-links">
-      <a href="/pages/search.html">길찾기 시작</a>
-      <a href="/pages/favorites.html">즐겨찾기·기록</a>
-      <a href="/pages/stats.html">이용 통계</a>
-    </nav>
-  </main>
+  <div class="app">
+    <header class="header" id="site-header"></header>
+    <div class="page-transition">
+      <main class="landing">
+        <section class="hero">
+          <div class="hero-copy">
+            <div class="eyebrow"><span><i data-icon="spark" data-size="15"></i></span> 도착부터 생각하는 새로운 길찾기</div>
+            <h1 class="hero-title">도착 시간만 정하세요.<br /><strong>출발 시간은 알려드릴게요.</strong></h1>
+            <p>실시간 교통 흐름을 분석해 늦지 않는 가장 좋은 출발 시각과 경로를 찾아드려요.</p>
+            <a class="btn btn-primary hero-cta" href="/pages/search.html">길찾기 시작하기 <i data-icon="arrow" data-size="18"></i></a>
+          </div>
+          <div class="hero-visual">
+            <div class="visual-glow"></div>
+            <div class="arrival-card">
+              <div class="mini-label"><i data-icon="location" data-size="16"></i> 오늘, 동의대학교</div>
+              <div class="arrival-row"><span>도착 희망 시각</span><strong>오전 9:00</strong></div>
+              <div class="timeline">
+                <span class="timeline-start"><i></i>김해시청</span>
+                <span class="timeline-line"><i class="car-dot"><i data-icon="car" data-size="15"></i></i></span>
+                <span class="timeline-end"><i></i>동의대학교</span>
+              </div>
+            </div>
+            <div class="depart-card">
+              <span class="status-dot"><i data-icon="check" data-size="13"></i></span>
+              <div><small>권장 출발 시각</small><strong>오전 8:12</strong><p>지금 교통 흐름이 가장 안정적이에요</p></div>
+            </div>
+            <div class="traffic-chip"><i data-icon="chart" data-size="17"></i><span>예상 소요시간 <b>38분</b></span></div>
+          </div>
+        </section>
+        <section class="features">
+          <div class="section-intro"><span>GILIT FEATURES</span><div class="section-title">도착이 중요한 모든 순간을 위해</div><p>시간을 거꾸로 계산하는 더 똑똑한 이동 계획</p></div>
+          <div class="feature-grid">
+            <article class="feature-card">
+              <span class="feature-icon icon-0"><i data-icon="clock" data-size="23"></i></span>
+              <div class="feature-title">도착시각 역산</div>
+              <p>원하는 도착 시간을 기준으로 교통 상황과 여유시간을 계산해 정확한 출발 시각을 알려드려요.</p>
+              <span class="learn-more">자세히 보기 <i data-icon="arrow" data-size="15"></i></span>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon icon-1"><i data-icon="chart" data-size="23"></i></span>
+              <div class="feature-title">시간대별 소요시간</div>
+              <p>출발 시각에 따라 달라지는 예상 소요시간을 그래프로 한눈에 비교할 수 있어요.</p>
+              <span class="learn-more">자세히 보기 <i data-icon="arrow" data-size="15"></i></span>
+            </article>
+            <article class="feature-card">
+              <span class="feature-icon icon-2"><i data-icon="spark" data-size="23"></i></span>
+              <div class="feature-title">AI 경로 추천</div>
+              <p>거리, 비용, 정체 가능성을 함께 분석해 가장 안정적인 경로를 추천해드려요.</p>
+              <span class="learn-more">자세히 보기 <i data-icon="arrow" data-size="15"></i></span>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <script type="module" src="/js/components/header.js"></script>
   <script type="module" src="/js/pages/index.js"></script>

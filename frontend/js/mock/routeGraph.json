@@ -1,9 +1,137 @@
 [
-  { "departTime": "2026-11-02T07:00:00+09:00", "durationMin": 34 },
-  { "departTime": "2026-11-02T07:15:00+09:00", "durationMin": 36 },
-  { "departTime": "2026-11-02T07:30:00+09:00", "durationMin": 39 },
-  { "departTime": "2026-11-02T07:45:00+09:00", "durationMin": 41 },
-  { "departTime": "2026-11-02T08:00:00+09:00", "durationMin": 42 },
-  { "departTime": "2026-11-02T08:15:00+09:00", "durationMin": 47 },
-  { "departTime": "2026-11-02T08:30:00+09:00", "durationMin": 44 }
+  {
+    "routeId": "route-1",
+    "points": [
+      {
+        "departTime": "2026-11-02T07:30:00+09:00",
+        "durationMin": 45
+      },
+      {
+        "departTime": "2026-11-02T07:40:00+09:00",
+        "durationMin": 48
+      },
+      {
+        "departTime": "2026-11-02T07:50:00+09:00",
+        "durationMin": 46
+      },
+      {
+        "departTime": "2026-11-02T08:00:00+09:00",
+        "durationMin": 54
+      },
+      {
+        "departTime": "2026-11-02T08:10:00+09:00",
+        "durationMin": 51
+      },
+      {
+        "departTime": "2026-11-02T08:20:00+09:00",
+        "durationMin": 57
+      },
+      {
+        "departTime": "2026-11-02T08:30:00+09:00",
+        "durationMin": 53
+      },
+      {
+        "departTime": "2026-11-02T08:40:00+09:00",
+        "durationMin": 60
+      },
+      {
+        "departTime": "2026-11-02T08:50:00+09:00",
+        "durationMin": 56
+      },
+      {
+        "departTime": "2026-11-02T09:00:00+09:00",
+        "durationMin": 62
+      }
+    ]
+  },
+  {
+    "routeId": "route-2",
+    "points": [
+      {
+        "departTime": "2026-11-02T07:30:00+09:00",
+        "durationMin": 47
+      },
+      {
+        "departTime": "2026-11-02T07:40:00+09:00",
+        "durationMin": 50
+      },
+      {
+        "departTime": "2026-11-02T07:50:00+09:00",
+        "durationMin": 49
+      },
+      {
+        "departTime": "2026-11-02T08:00:00+09:00",
+        "durationMin": 52
+      },
+      {
+        "departTime": "2026-11-02T08:10:00+09:00",
+        "durationMin": 59
+      },
+      {
+        "departTime": "2026-11-02T08:20:00+09:00",
+        "durationMin": 56
+      },
+      {
+        "departTime": "2026-11-02T08:30:00+09:00",
+        "durationMin": 63
+      },
+      {
+        "departTime": "2026-11-02T08:40:00+09:00",
+        "durationMin": 57
+      },
+      {
+        "departTime": "2026-11-02T08:50:00+09:00",
+        "durationMin": 65
+      },
+      {
+        "departTime": "2026-11-02T09:00:00+09:00",
+        "durationMin": 61
+      }
+    ]
+  },
+  {
+    "routeId": "route-3",
+    "points": [
+      {
+        "departTime": "2026-11-02T07:30:00+09:00",
+        "durationMin": 49
+      },
+      {
+        "departTime": "2026-11-02T07:40:00+09:00",
+        "durationMin": 51
+      },
+      {
+        "departTime": "2026-11-02T07:50:00+09:00",
+        "durationMin": 55
+      },
+      {
+        "departTime": "2026-11-02T08:00:00+09:00",
+        "durationMin": 52
+      },
+      {
+        "departTime": "2026-11-02T08:10:00+09:00",
+        "durationMin": 60
+      },
+      {
+        "departTime": "2026-11-02T08:20:00+09:00",
+        "durationMin": 57
+      },
+      {
+        "departTime": "2026-11-02T08:30:00+09:00",
+        "durationMin": 64
+      },
+      {
+        "departTime": "2026-11-02T08:40:00+09:00",
+        "durationMin": 60
+      },
+      {
+        "departTime": "2026-11-02T08:50:00+09:00",
+        "durationMin": 68
+      },
+      {
+        "departTime": "2026-11-02T09:00:00+09:00",
+        "durationMin": 65
+      }
+    ]
+  }
 ]

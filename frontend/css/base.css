@@ -1,30 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap');
 :root {
-  --navy: #0B1F4B;
-  --blue: #2563EB;
-  --blue-light: #EAF2FF;
-  --bg: #F5F7FA;
-  --text: #1F2937;
+  --navy: #0b1f4b;
+  --navy-2: #142a58;
+  --blue: #2563eb;
+  --blue-hover: #1d4ed8;
+  --blue-soft: #eaf2ff;
+  --blue-pale: #f5f8ff;
+  --ink: #17233d;
+  --muted: #6d7890;
+  --muted-2: #99a3b6;
+  --line: #e6eaf0;
+  --surface: #f5f7fa;
+  --green: #16a36a;
+  --green-soft: #e9f8f1;
+  --orange: #f59e0b;
+  --orange-soft: #fff5df;
+  --white: #ffffff;
+  --shadow: 0 8px 30px rgba(19, 40, 78, 0.07);
+  --shadow-hover: 0 14px 34px rgba(19, 40, 78, 0.11);
   --radius: 12px;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  line-height: 1.5;
-}
-
-a {
-  color: var(--blue);
-  text-decoration: none;
-}
-
-h1,
-p {
-  margin: 0;
+/* Tailwind Preflight 대체: 디자인 원본은 이 리셋을 전제로 작성되었다. */
+@layer base {
+  *, ::before, ::after { margin: 0; padding: 0; border: 0 solid; box-sizing: border-box; }
+  html { line-height: 1.5; color: var(--ink); background: var(--white); -webkit-text-size-adjust: 100%; }
+  body { min-width: 1180px; margin: 0; font-family: 'Noto Sans KR', sans-serif; -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { font-size: inherit; font-weight: inherit; }
+  a { color: inherit; text-decoration: inherit; }
+  b, strong { font-weight: bolder; }
+  small { font-size: 80%; }
+  svg { display: block; }
+  [hidden] { display: none !important; }
+  button, input { font: inherit; letter-spacing: inherit; color: inherit; background-color: transparent; border-radius: 0; }
 }

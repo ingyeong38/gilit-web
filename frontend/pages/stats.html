@@ -5,25 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>이용 통계 | 길잇</title>
   <link rel="icon" href="data:," />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
   <link rel="stylesheet" href="/css/pages/stats.css" />
 </head>
 <body>
-  <header id="site-header"></header>
-
-  <main class="container">
-    <h1 class="page-title">이용 통계</h1>
-    <section class="todo-box">
-      <strong>TODO</strong>
-      <p>일별 방문자 수, 인기 목적지</p>
-    </section>
-    <nav class="page-links">
-      <a href="/pages/search.html">길찾기로 이동</a>
-    </nav>
-  </main>
+  <div class="app">
+    <header class="header" id="site-header"></header>
+    <div class="page-transition">
+      <main class="sub-page page-shell" id="stats-page">
+        <div class="sub-header">
+          <div><h1 class="page-title">이용 통계</h1><p>길잇 서비스 이용 현황과 인기 이동 지역을 확인하세요.</p></div>
+          <div class="period-select"><i data-icon="calendar" data-size="17"></i> 최근 7일 <i data-icon="chevron" data-size="15"></i></div>
+        </div>
+        <div class="stat-grid">
+          <article class="stat-card"><span class="stat-icon tone-1"><i data-icon="user"></i></span><div><small>오늘 방문자</small><strong id="stat-today"></strong><em id="stat-today-note"></em></div></article>
+          <article class="stat-card"><span class="stat-icon tone-2"><i data-icon="bars"></i></span><div><small>누적 방문자</small><strong id="stat-total"></strong><em id="stat-total-note"></em></div></article>
+          <article class="stat-card"><span class="stat-icon tone-3"><i data-icon="search"></i></span><div><small>총 검색 수</small><strong id="stat-searches"></strong><em id="stat-searches-note"></em></div></article>
+          <article class="stat-card"><span class="stat-icon tone-4"><i data-icon="location"></i></span><div><small>인기 목적지</small><strong id="stat-popular"></strong><em id="stat-popular-note"></em></div></article>
+        </div>
+        <section class="dashboard-card visitor-chart">
+          <div class="dashboard-head">
+            <div><div class="list-title">일별 방문자 추이</div><p>최근 7일간 서비스 방문자 수</p></div>
+            <div class="chart-summary"><small>주간 방문자</small><b id="week-total"></b><span id="week-change"></span></div>
+          </div>
+          <div class="visitor-graph" id="visitor-graph"></div>
+        </section>
+        <div class="ranking-grid">
+          <section class="dashboard-card ranking-chart" id="ranking-origins"></section>
+          <section class="dashboard-card ranking-chart" id="ranking-destinations"></section>
+        </div>
+      </main>
+    </div>
+  </div>
 
   <script type="module" src="/js/components/header.js"></script>
   <script type="module" src="/js/pages/stats.js"></script>
