@@ -76,6 +76,8 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 
 ### GET /api/places?q=
 
+호출 방식 미정(해민과 합의 필요): 프론트엔드가 장소 검색 API를 직접 호출할지, 백엔드가 이 API로 중계할지 정하지 않았다.
+
 요청: `GET /api/places?q=김해시청`
 
 ```json
@@ -364,6 +366,7 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 ## 해민과 정할 것
 
+- 장소 검색 호출 방식: 프론트엔드가 장소 검색 API를 직접 호출할지, 백엔드 `GET /api/places`가 중계할지 (해민과 합의 필요)
 - `from`, `to` 형식: 지금은 장소 이름만 전달한다. 길찾기 API에 좌표가 필요하면 URL 쿼리와 함께 바꾼다.
 - 즐겨찾기 좌표: 프론트 즐겨찾기 추가 모달이 장소 검색 결과의 좌표를 보내도록 바꾸면 서버의 좌표 검색을 뺄 수 있다.
 - 즐겨찾기·검색 기록 응답에 `lat`·`lng`, `buffer`·`departTime`을 더할지 (지금은 mock과 같은 필드만 돌려준다. 더하면 mock도 고친다)
