@@ -2,18 +2,31 @@
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 
-from app.departure import MockRouteProvider, RouteProvider, SolverConfig
+from dotenv import load_dotenv
+
+from app.departure import KakaoRouteProvider, MockRouteProvider, RouteProvider, SolverConfig
 
 ROUTE_PROVIDERS = ("mock", "kakao")
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+# 앞의 파일이 우선한다. 이미 설정된 환경변수는 덮어쓰지 않으므로 우선순위는 환경변수 > backend/.env > 루트 .env다.
+ENV_FILES = (BACKEND_DIR / ".env", BACKEND_DIR.parent / ".env")
+
+
+def load_env_files(paths: tuple[Path, ...] = ENV_FILES) -> None:
+    """.env 파일을 환경변수로 읽는다. 진입점(cli, 이후 웹 서버)에서 한 번 부른다. import만으로는 읽지 않는다."""
+    for path in paths:
+        if path.is_file():
+            load_dotenv(path, override=False)
 
 
 @dataclass(frozen=True)
 class Settings:
     route_provider: str = "mock"
-    kakao_rest_api_key: str | None = None
+    kakao_rest_api_key: str | None = field(default=None, repr=False)  # repr로 키가 출력되지 않게 한다
     departure_max_calls: int = 8
     departure_search_window_min: int = 360
 
@@ -25,7 +38,7 @@ class Settings:
             raise ValueError(f"ROUTE_PROVIDER는 {', '.join(ROUTE_PROVIDERS)} 중 하나여야 합니다: {provider}")
         return cls(
             route_provider=provider,
-            kakao_rest_api_key=env.get("KAKAO_REST_API_KEY") or None,
+            kakao_rest_api_key=env.get("KAKAO_REST_API_KEY", "").strip() or None,
             departure_max_calls=_int_env(env, "DEPARTURE_MAX_CALLS", cls.departure_max_calls),
             departure_search_window_min=_int_env(env, "DEPARTURE_SEARCH_WINDOW_MIN", cls.departure_search_window_min),
         )
@@ -42,7 +55,7 @@ def create_route_provider(settings: Settings) -> RouteProvider:
         return MockRouteProvider()
     if not settings.kakao_rest_api_key:
         raise ValueError("ROUTE_PROVIDER=kakao에는 KAKAO_REST_API_KEY 환경변수가 필요합니다.")
-    raise NotImplementedError("KakaoRouteProvider는 아직 구현 전입니다. ROUTE_PROVIDER=mock을 쓰세요.")
+    return KakaoRouteProvider(settings.kakao_rest_api_key)
 
 
 def _int_env(env: Mapping[str, str], name: str, default: int) -> int:

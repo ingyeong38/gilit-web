@@ -2,8 +2,9 @@ from datetime import timedelta
 
 import pytest
 
-from app.config import Settings, create_route_provider
-from app.departure import Coordinate, MockRouteProvider, RouteProvider, TravelMode
+from app.config import Settings, create_route_provider, load_env_files
+from app.departure import Coordinate, KakaoRouteProvider, MockRouteProvider, RouteProvider, TravelMode
+from app.departure import ProviderQuotaExceededError
 from app.departure.cli import main
 from tests.conftest import DONGEUI_UNIV, GIMHAE_CITY_HALL, SEOUL_STATION, kst
 
@@ -79,11 +80,35 @@ def test_settings_rejects_bad_env(env, error):
         Settings.from_env(env)
 
 
-def test_kakao_provider_requires_key_and_is_not_ready():
+def test_kakao_provider_requires_key():
     with pytest.raises(ValueError, match="KAKAO_REST_API_KEY"):
         create_route_provider(Settings.from_env({"ROUTE_PROVIDER": "kakao"}))
-    with pytest.raises(NotImplementedError):
-        create_route_provider(Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "test"}))
+    with pytest.raises(ValueError, match="KAKAO_REST_API_KEY"):
+        create_route_provider(Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "  "}))
+
+
+def test_kakao_provider_is_selected_and_key_is_hidden():
+    settings = Settings.from_env({"ROUTE_PROVIDER": " Kakao ", "KAKAO_REST_API_KEY": "secret-key-123"})
+    provider = create_route_provider(settings)
+
+    assert isinstance(provider, KakaoRouteProvider)
+    assert "secret-key-123" not in repr(settings)
+    assert "secret-key-123" not in repr(provider)
+
+
+def test_load_env_files_prefers_env_then_backend_then_root(tmp_path, monkeypatch):
+    backend_env = tmp_path / "backend.env"
+    root_env = tmp_path / "root.env"
+    backend_env.write_text("ROUTE_PROVIDER=kakao\nDEPARTURE_MAX_CALLS=5\n", encoding="utf-8")
+    root_env.write_text("ROUTE_PROVIDER=mock\nDEPARTURE_MAX_CALLS=6\nKAKAO_REST_API_KEY=from-root\n", encoding="utf-8")
+    monkeypatch.setenv("DEPARTURE_MAX_CALLS", "9")
+
+    load_env_files((backend_env, root_env, tmp_path / "missing.env"))
+    settings = Settings.from_env()
+
+    assert settings.route_provider == "kakao"
+    assert settings.departure_max_calls == 9
+    assert settings.kakao_rest_api_key == "from-root"
 
 
 def test_cli_prints_recommended_departure(capsys):
@@ -100,3 +125,15 @@ def test_cli_reports_past_arrival_without_traceback(capsys):
 
     assert exit_code == 1
     assert "도착 희망 시각이 이미 지났습니다." in capsys.readouterr().err
+
+
+def test_cli_reports_provider_error_without_traceback(capsys, monkeypatch):
+    class FailingProvider(RouteProvider):
+        def get_duration(self, origin, dest, depart_at, travel_mode=TravelMode.CAR):
+            raise ProviderQuotaExceededError("길찾기 API 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.")
+
+    monkeypatch.setattr("app.departure.cli.create_route_provider", lambda settings: FailingProvider())
+    exit_code = main(["--from", "35.2285,128.8894", "--to", "35.1441,129.0336", "--arrive", "2099-11-05 09:00"])
+
+    assert exit_code == 1
+    assert "호출 한도를 초과했습니다" in capsys.readouterr().err

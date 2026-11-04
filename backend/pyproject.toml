@@ -1,3 +1,8 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# 실제 카카오 API를 부르는 테스트는 기본 실행에서 뺀다: pytest -m kakao_live
+addopts = "-m 'not kakao_live'"
+markers = [
+    "kakao_live: 실제 카카오모빌리티 API를 호출한다 (KAKAO_REST_API_KEY 필요, 일일 쿼터 사용)",
+]

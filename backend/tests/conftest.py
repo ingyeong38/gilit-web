@@ -50,6 +50,17 @@ def brute_force_latest(provider, origin, dest, target, earliest, travel_mode=Tra
     return latest
 
 
+ENGINE_ENV_VARS = ("ROUTE_PROVIDER", "KAKAO_REST_API_KEY", "DEPARTURE_MAX_CALLS", "DEPARTURE_SEARCH_WINDOW_MIN")
+
+
+@pytest.fixture(autouse=True)
+def isolated_env(monkeypatch):
+    """개발자의 환경변수와 .env가 테스트에 섞이지 않게 한다. 기본 테스트가 실제 카카오 API를 부르는 일을 막는다."""
+    for name in ENGINE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("app.departure.cli.load_env_files", lambda: None)
+
+
 @pytest.fixture
 def clock():
     return lambda: NOW
