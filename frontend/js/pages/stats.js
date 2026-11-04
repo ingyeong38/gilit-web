@@ -1,6 +1,7 @@
 import { getStats } from "/js/api.js";
 import { renderRankingChart, renderVisitorChart } from "/js/components/charts.js";
 import { icon, renderIcons } from "/js/components/icon.js";
+import { requirePageAccess } from "/js/guard.js";
 
 const formatCount = (value) => value.toLocaleString("ko-KR");
 
@@ -68,4 +69,4 @@ async function init() {
   }
 }
 
-init();
+requirePageAccess().then(init);

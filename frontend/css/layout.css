@@ -9,6 +9,7 @@
 .nav-menu button:hover, .nav-menu button.active { color: var(--navy); }
 .nav-menu button.active::after { content: ''; position: absolute; left: 2px; right: 2px; bottom: 0; height: 2px; background: var(--blue); border-radius: 2px 2px 0 0; }
 .account { margin-left: auto; position: relative; }
+.account-actions { display: flex; gap: 8px; }
 .profile-button { border: 0; background: transparent; display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .avatar { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--navy); color: var(--white); }
 .profile-menu { position: absolute; top: 48px; right: 0; width: 160px; padding: 7px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-hover); }

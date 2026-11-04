@@ -2,6 +2,7 @@ import { addFavorite, getFavorites, getHistory, removeFavorite } from "/js/api.j
 import { openAddPlaceModal } from "/js/components/addPlaceModal.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { showToast } from "/js/components/toast.js";
+import { requirePageAccess } from "/js/guard.js";
 import {
   buildResultUrl,
   dateOf,
@@ -128,4 +129,4 @@ content.addEventListener("click", (event) => {
   if (event.target.closest('[data-action="add"]')) openAddModal();
 });
 
-init();
+requirePageAccess().then(init);

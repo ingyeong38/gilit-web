@@ -1,6 +1,8 @@
-import { getUser, login, logout } from "/js/auth.js";
+import { logoutSession } from "/js/api.js";
+import { getUser, logout, onAuthChange } from "/js/auth.js";
+import { openAuthModal } from "/js/components/authModal.js";
 import { icon } from "/js/components/icon.js";
-import { openLoginModal } from "/js/components/loginModal.js";
+import { installAuthGuard } from "/js/guard.js";
 import { escapeHtml } from "/js/utils.js";
 
 // 경로 결과 화면은 길찾기 흐름의 일부이므로 "길찾기" 메뉴를 강조한다.
@@ -12,7 +14,12 @@ const MENU = [
 
 function renderAccount(user) {
   if (!user) {
-    return '<button class="btn btn-secondary" type="button" data-action="login">로그인</button>';
+    return `
+      <div class="account-actions">
+        <button class="btn btn-secondary" type="button" data-auth-view="login">로그인</button>
+        <button class="btn btn-primary" type="button" data-auth-view="signup">회원가입</button>
+      </div>
+    `;
   }
   const name = escapeHtml(user.name);
   return `
@@ -49,22 +56,23 @@ function renderHeader() {
     </div>
   `;
 
-  header.querySelector('[data-action="login"]')?.addEventListener("click", () => {
-    openLoginModal({
-      onLogin: (provider) => {
-        login(provider);
-        renderHeader();
-      },
+  header.querySelectorAll("[data-auth-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openAuthModal({ view: button.dataset.authView });
     });
   });
   header.querySelector('[data-action="profile"]')?.addEventListener("click", () => {
     const menu = header.querySelector(".profile-menu");
     menu.hidden = !menu.hidden;
   });
-  header.querySelector('[data-action="logout"]')?.addEventListener("click", () => {
+  header.querySelector('[data-action="logout"]')?.addEventListener("click", async () => {
+    // 서버 세션 종료에 실패해도 이 브라우저에서는 로그아웃시킨다.
+    await logoutSession().catch(() => {});
     logout();
-    renderHeader();
   });
 }
 
+// 로그인·로그아웃은 어디서 일어나든 이 이벤트로 헤더에 반영한다.
+onAuthChange(renderHeader);
+installAuthGuard();
 renderHeader();
