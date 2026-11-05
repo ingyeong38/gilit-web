@@ -73,7 +73,12 @@ function submit() {
   }
   goToResult({ from, to, date: dateInput.value, time: timeInput.value, buffer }, SEARCH_DELAY_MS);
 }
-
+if (from === to) {
+  showToast("출발지와 다른 목적지를 입력해 주세요", { error: true });
+  toInput.focus();
+  return;
+}
+if (Date.parse(toIso))
 function setupAutocomplete(input) {
   const field = input.closest(".field");
   let requestId = 0;
