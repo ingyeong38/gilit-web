@@ -1,13 +1,20 @@
 # 길잇 백엔드
 
-백엔드 담당 인경. Python 3.11 이상. 웹 프레임워크는 아직 정하지 않았다.
+백엔드 담당 인경. Python 3.11 이상, 웹 프레임워크는 FastAPI + uvicorn.
 
 ## 구조
 
 ```text
 backend/
 ├── app/
+│   ├── main.py                # 웹 서버 진입점 (uvicorn app.main:app)
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
+│   ├── api/                   # 웹 API (FastAPI)
+│   │   ├── factory.py         # create_app: Provider·Solver를 한 번 만들고 CORS, 오류 처리, 라우터를 붙인다
+│   │   ├── departure.py       # POST /api/departure
+│   │   ├── health.py          # GET /health
+│   │   ├── schemas.py         # 요청·응답 모델과 입력 검증
+│   │   └── errors.py          # 예외 -> { "message": ... } 응답
 │   └── departure/             # 출발시각 역산 엔진 (SFR-003)
 │       ├── models.py          # Coordinate, TravelMode, DepartureResult
 │       ├── providers.py       # RouteProvider(인터페이스), MockRouteProvider
@@ -17,8 +24,8 @@ backend/
 │       └── cli.py             # 실행 예제
 ├── tests/                     # pytest (test_kakao_live.py는 실제 API 호출, 기본 실행에서 제외)
 ├── pyproject.toml             # pytest 설정
-├── requirements.txt           # requests, python-dotenv
-└── requirements-dev.txt       # requirements.txt + pytest
+├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn
+└── requirements-dev.txt       # requirements.txt + pytest, httpx2 (TestClient)
 ```
 
 ## 실행
@@ -32,6 +39,12 @@ venv/Scripts/python -m pip install -r requirements-dev.txt
 # 테스트 (실제 API는 부르지 않는다)
 venv/Scripts/python -m pytest
 
+# 웹 서버. http://127.0.0.1:8000/docs 에서 요청을 시험한다
+venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
+
+# 실제 카카오 데이터로 웹 서버 실행 (.env에 ROUTE_PROVIDER=kakao를 두어도 된다)
+ROUTE_PROVIDER=kakao venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
+
 # 실제 카카오 API 테스트 (KAKAO_REST_API_KEY 필요, 한 번에 약 10회 호출)
 venv/Scripts/python -m pytest -m kakao_live
 
@@ -42,11 +55,13 @@ venv/Scripts/python -m app.departure.cli --from 35.2285,128.8894 --to 35.1441,12
 ROUTE_PROVIDER=kakao venv/Scripts/python -m app.departure.cli --from 35.2285,128.8894 --to 35.1441,129.0336 --arrive "2026-11-06 09:00" --buffer 10
 ```
 
-`--json`으로 API 응답 필드 이름의 JSON을 볼 수 있다. 시간대 없이 쓴 시각은 한국 시간으로 본다. `--mode transit`은 Mock에서만 된다.
+Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --reload --port 8000`처럼 쓴다. PowerShell에서 환경변수를 잠깐 바꾸려면 `$env:ROUTE_PROVIDER = "kakao"`를 먼저 실행한다.
+
+`--json`으로 엔진 결과의 JSON을 볼 수 있다 (camelCase, 웹 API 응답과 필드 이름이 다르다). 시간대 없이 쓴 시각은 한국 시간으로 본다. `--mode transit`은 Mock에서만 된다.
 
 ### 환경변수와 .env
 
-설정은 `app/config.py`가 읽는다. 진입점(`cli.py`)이 `backend/.env`, 루트 `.env`를 차례로 읽고, 이미 있는 환경변수는 덮어쓰지 않는다. 우선순위는 환경변수 > `backend/.env` > 루트 `.env`다. 두 `.env` 모두 `.gitignore`에 들어 있다. 변수 목록은 루트 `.env.example`을 본다.
+설정은 `app/config.py`가 읽는다. 진입점(`cli.py`, 웹 서버의 `create_app`)이 `backend/.env`, 루트 `.env`를 차례로 읽고, 이미 있는 환경변수는 덮어쓰지 않는다. 우선순위는 환경변수 > `backend/.env` > 루트 `.env`다. 두 `.env` 모두 `.gitignore`에 들어 있다. 변수 목록은 루트 `.env.example`을 본다.
 
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
@@ -54,6 +69,8 @@ ROUTE_PROVIDER=kakao venv/Scripts/python -m app.departure.cli --from 35.2285,128
 | `KAKAO_REST_API_KEY` | 없음 | `kakao`일 때 필수. 카카오 개발자 앱의 REST API 키 |
 | `DEPARTURE_MAX_CALLS` | `8` | 요청 하나당 소요시간 조회 최대 횟수 |
 | `DEPARTURE_SEARCH_WINDOW_MIN` | `360` | 도착 희망 시각 몇 분 전까지 출발시각을 찾을지 |
+| `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 소요시간 캐시 유지 시간(초). `0`이면 캐시하지 않는다 |
+| `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다 |
 
 테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`를 두어도 기본 테스트는 실제 API를 부르지 않는다.
 
@@ -74,7 +91,7 @@ ROUTE_PROVIDER=kakao venv/Scripts/python -m app.departure.cli --from 35.2285,128
 - 좌표: 카카오는 `경도,위도` 순서다. 엔진의 `Coordinate`(위도, 경도)를 어댑터에서 바꾼다.
 - 출발시각: 한국 시간 `YYYYMMDDHHmm`. 초는 내린다. 도착 희망 시각은 내일 이후로 준다 (미래 운행 정보 API).
 - 이동수단: `car`만 된다. `transit`은 `UnsupportedTravelModeError`("대중교통은 아직 지원하지 않습니다.").
-- 캐시: 같은 (출발지, 목적지, 출발시각(분), 이동수단)은 프로세스 메모리 LRU 캐시(기본 1,024건)로 다시 부르지 않는다. 오류는 캐시하지 않는다. 만료 시간은 없으므로, 웹 서버로 오래 띄우면 예측값이 갱신되지 않는다.
+- 캐시: 같은 (출발지, 목적지, 출발시각(분), 이동수단)은 프로세스 메모리 LRU 캐시(기본 1,024건)로 다시 부르지 않는다. 항목은 `ROUTE_CACHE_TTL_SEC`(기본 10분)이 지나면 버려 예측값이 갱신된다. 적중해도 만료 시각은 늘어나지 않는다. 오류는 캐시하지 않는다. 웹 서버는 어댑터 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서 고친다. 서버 프로세스를 여러 개 띄우면 캐시는 프로세스마다 따로다.
 - 쿼터: 일일 5,000건. 검색 한 번에 최대 `DEPARTURE_MAX_CALLS`(8)회라 하루 약 625회 검색까지 된다. `request_count`로 실제 호출 수를 볼 수 있다.
 - 타임아웃: 10초.
 
@@ -96,3 +113,57 @@ ROUTE_PROVIDER=kakao venv/Scripts/python -m app.departure.cli --from 35.2285,128
 `RouteProvider`를 상속해 `get_duration(origin, dest, depart_at, travel_mode)`(초 단위)만 구현하고, `app/config.py`의 `create_route_provider`에서 돌려주면 된다. 엔진 코드는 바꾸지 않는다. 엔진은 먼저 출발하면 늦게 도착하지 않는다(FIFO)고 가정한다. API 키는 환경변수(`KAKAO_REST_API_KEY`)로만 받는다. 루트 `.env.example`을 참고한다.
 
 `MockRouteProvider`는 직선거리와 출퇴근 혼잡(08:00, 18:30 전후)을 흉내 낸 가짜 데이터다. 실제 교통 정보와 무관하다.
+
+## 웹 API
+
+`POST /api/departure`와 `GET /health`를 구현했다. 전체 명세(필드 규칙, 오류 표, 해민과 합의할 항목)는 `docs/api-spec.md`에 있다.
+
+- 앱은 `app/api/factory.py`의 `create_app`이 만든다. RouteProvider와 DepartureSolver는 이때 한 번만 만들어 모든 요청이 함께 쓴다 (카카오 어댑터의 캐시·HTTP 세션 공유).
+- 엔드포인트는 동기 함수라 FastAPI가 스레드 풀에서 실행한다. 엔진과 카카오 어댑터가 블로킹 I/O(requests)를 쓰기 때문이다.
+- 오류는 모두 `{ "message": "..." }`이다. 입력 검증 실패는 `400`(FastAPI 기본 `422` 목록 대신), `DepartureError`는 `400`/`422`, `RouteProviderError`는 `502`/`503`/`504`다. 5xx의 원래 메시지(HTTP 코드, 카카오 안내 문구 등)는 응답에 넣지 않고 `app.api` 로거로 서버 로그에만 남긴다.
+- 테스트는 `app.main`을 import하지 않는다 (import하면 `.env`를 읽는다). `create_app(settings, provider, clock)`에 가짜 Provider와 고정 시각을 넣는다 (`tests/test_api.py`).
+
+### 요청 예시
+
+`/docs`에서 `POST /api/departure` → Try it out에 예시 본문이 채워져 있다. `arrive_at`은 미래 시각으로 바꿔서 보낸다. curl로는:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/departure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "origin": {"name": "김해시청", "lat": 35.2285, "lng": 128.8894},
+    "destination": {"name": "동의대학교", "lat": 35.1441, "lng": 129.0336},
+    "arrive_at": "2026-11-06T09:00:00+09:00",
+    "buffer_min": 10,
+    "travel_mode": "car"
+  }'
+```
+
+응답 (`ROUTE_PROVIDER=kakao`, 2026-11-05에 실행한 실제 결과):
+
+```json
+{
+  "recommended_depart_at": "2026-11-06T08:19:00+09:00",
+  "duration_min": 31,
+  "expected_arrive_at": "2026-11-06T08:49:25+09:00",
+  "desired_arrive_at": "2026-11-06T09:00:00+09:00",
+  "buffer_min": 10,
+  "buffer_applied": true,
+  "converged": true,
+  "api_calls": 4,
+  "data_source": "kakao"
+}
+```
+
+오류 예시:
+
+```json
+// 400: 위도 범위 밖
+{ "message": "목적지 위도는 -90~90 사이의 숫자여야 합니다." }
+// 400: 지난 시각
+{ "message": "도착 희망 시각이 이미 지났습니다." }
+// 422: 출발지와 목적지가 같음 (카카오 result_code=104)
+{ "message": "경로를 찾을 수 없습니다: 출발지와 도착지가 5 m 이내로 설정된 경우 경로를 탐색할 수 없음 (result_code=104)" }
+// 502: 카카오 인증 실패 등. 원인은 서버 로그에만 남는다
+{ "message": "길찾기 정보를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요." }
+```

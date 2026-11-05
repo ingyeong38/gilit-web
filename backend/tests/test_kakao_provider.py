@@ -266,3 +266,49 @@ def test_cache_is_shared_across_solver_requests(clock):
 def test_requires_api_key():
     with pytest.raises(ValueError, match="KAKAO_REST_API_KEY"):
         KakaoRouteProvider("")
+
+
+class FakeMonotonic:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def test_cache_expires_after_ttl():
+    clock = FakeMonotonic()
+    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=600, monotonic=clock)
+
+    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1800
+    clock.now += 599
+    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1800  # 아직 유효
+    clock.now += 1
+    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1900  # 만료되어 다시 조회
+    assert session.get.call_count == 2
+
+
+def test_cache_hit_does_not_extend_ttl():
+    clock = FakeMonotonic()
+    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=600, monotonic=clock)
+
+    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
+    clock.now += 500
+    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))  # 적중해도 만료 시각은 그대로
+    clock.now += 100
+    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1900
+    assert session.get.call_count == 2
+
+
+def test_zero_ttl_disables_cache():
+    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=0)
+
+    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
+    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
+
+    assert session.get.call_count == 2
+
+
+def test_negative_ttl_is_rejected():
+    with pytest.raises(ValueError, match="cache_ttl_sec"):
+        KakaoRouteProvider(API_KEY, cache_ttl_sec=-1)

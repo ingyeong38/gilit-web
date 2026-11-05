@@ -50,7 +50,14 @@ def brute_force_latest(provider, origin, dest, target, earliest, travel_mode=Tra
     return latest
 
 
-ENGINE_ENV_VARS = ("ROUTE_PROVIDER", "KAKAO_REST_API_KEY", "DEPARTURE_MAX_CALLS", "DEPARTURE_SEARCH_WINDOW_MIN")
+ENGINE_ENV_VARS = (
+    "ROUTE_PROVIDER",
+    "KAKAO_REST_API_KEY",
+    "DEPARTURE_MAX_CALLS",
+    "DEPARTURE_SEARCH_WINDOW_MIN",
+    "ROUTE_CACHE_TTL_SEC",
+    "CORS_ORIGINS",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -59,6 +66,7 @@ def isolated_env(monkeypatch):
     for name in ENGINE_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr("app.departure.cli.load_env_files", lambda: None)
+    monkeypatch.setattr("app.api.factory.load_env_files", lambda: None)
 
 
 @pytest.fixture

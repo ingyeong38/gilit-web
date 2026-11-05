@@ -137,3 +137,34 @@ def test_cli_reports_provider_error_without_traceback(capsys, monkeypatch):
 
     assert exit_code == 1
     assert "호출 한도를 초과했습니다" in capsys.readouterr().err
+
+
+def test_web_settings_defaults():
+    settings = Settings.from_env({})
+
+    assert settings.route_cache_ttl_sec == 600
+    assert settings.cors_origins == ("http://localhost:5500", "http://127.0.0.1:5500")
+
+
+def test_cors_origins_from_env():
+    settings = Settings.from_env({"CORS_ORIGINS": " https://gilit.example.com/ ,, http://localhost:5500 "})
+
+    assert settings.cors_origins == ("https://gilit.example.com", "http://localhost:5500")
+
+
+def test_cors_origins_reject_wildcard():
+    with pytest.raises(ValueError, match="CORS_ORIGINS"):
+        Settings.from_env({"CORS_ORIGINS": "*"})
+
+
+def test_cache_ttl_is_passed_to_kakao_provider():
+    settings = Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "k", "ROUTE_CACHE_TTL_SEC": "120"})
+
+    assert create_route_provider(settings).cache_ttl_sec == 120
+
+
+def test_negative_cache_ttl_fails_at_startup():
+    settings = Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "k", "ROUTE_CACHE_TTL_SEC": "-1"})
+
+    with pytest.raises(ValueError, match="cache_ttl_sec"):
+        create_route_provider(settings)

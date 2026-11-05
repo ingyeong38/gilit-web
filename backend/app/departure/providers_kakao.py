@@ -6,9 +6,13 @@ GET https://apis-navi.kakaomobility.com/v1/future/directions
 - departure_time은 한국 시간 YYYYMMDDHHmm이다. 분 단위로 내려 보낸다.
 - 경로가 없으면 HTTP 200에 routes[0].result_code != 0으로 온다 (예: 104 출발지와 도착지가 5m 이내).
 - 일일 쿼터(5,000건)가 있으므로 같은 조회는 메모리 캐시로 다시 부르지 않는다.
+  예측값이 갱신되도록 캐시 항목은 cache_ttl_sec(기본 10분)이 지나면 버린다.
 """
 
+import threading
+import time
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime
 
 import requests
@@ -28,6 +32,7 @@ from app.departure.providers import RouteProvider
 
 KAKAO_FUTURE_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/future/directions"
 MAX_DETAIL_LENGTH = 100  # 오류 메시지에 붙이는 카카오 안내 문구의 최대 길이
+DEFAULT_CACHE_TTL_SEC = 600.0
 
 CacheKey = tuple[Coordinate, Coordinate, datetime, TravelMode]
 
@@ -36,7 +41,10 @@ class KakaoRouteProvider(RouteProvider):
     """카카오모빌리티 미래 운행 정보로 출발시각별 자동차 소요시간을 조회한다.
 
     API 키는 _api_key에만 두고 repr, 오류 메시지, 예외 체인 어디에도 드러내지 않는다.
-    캐시는 프로세스 메모리에 두는 LRU이고, 오래된 항목은 cache_size를 넘을 때 버린다.
+    캐시는 프로세스 메모리에 두는 LRU다. cache_size를 넘으면 가장 오래 안 쓴 항목을, cache_ttl_sec이 지나면
+    그 항목을 버린다. cache_ttl_sec=0이면 캐시하지 않는다.
+    웹 서버는 인스턴스 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서만 고친다.
+    API 호출은 잠금 밖에서 하므로, 같은 조회가 동시에 들어오면 둘 다 API를 부를 수 있다.
     """
 
     def __init__(
@@ -46,22 +54,32 @@ class KakaoRouteProvider(RouteProvider):
         session: requests.Session | None = None,
         timeout: float = 10.0,
         cache_size: int = 1024,
+        cache_ttl_sec: float = DEFAULT_CACHE_TTL_SEC,
         url: str = KAKAO_FUTURE_DIRECTIONS_URL,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if not api_key or not api_key.strip():
             raise ValueError("KAKAO_REST_API_KEY가 비어 있습니다.")
         if cache_size < 1:
             raise ValueError("cache_size는 1 이상이어야 합니다.")
+        if cache_ttl_sec < 0:
+            raise ValueError("cache_ttl_sec은 0 이상이어야 합니다.")
         self._api_key = api_key.strip()
         self._session = session or requests.Session()
         self.timeout = timeout
         self.cache_size = cache_size
+        self.cache_ttl_sec = cache_ttl_sec
         self.url = url
         self.request_count = 0  # 실제로 API를 부른 횟수 (쿼터 확인용, 캐시 적중은 세지 않는다)
-        self._cache: OrderedDict[CacheKey, int] = OrderedDict()
+        self._monotonic = monotonic
+        self._lock = threading.Lock()
+        self._cache: OrderedDict[CacheKey, tuple[int, float]] = OrderedDict()  # 값: (소요시간 초, 만료 시각)
 
     def __repr__(self) -> str:
-        return f"KakaoRouteProvider(timeout={self.timeout}, cache_size={self.cache_size})"
+        return (
+            f"KakaoRouteProvider(timeout={self.timeout}, cache_size={self.cache_size}, "
+            f"cache_ttl_sec={self.cache_ttl_sec})"
+        )
 
     def get_duration(
         self,
@@ -78,14 +96,33 @@ class KakaoRouteProvider(RouteProvider):
         depart_local = depart_at.astimezone(KST).replace(second=0, microsecond=0)
 
         key = (origin, dest, depart_local, travel_mode)
-        if key in self._cache:
-            self._cache.move_to_end(key)
-            return self._cache[key]
+        cached = self._cache_get(key)
+        if cached is not None:
+            return cached
         seconds = self._request_duration(origin, dest, depart_local)
-        self._cache[key] = seconds
-        if len(self._cache) > self.cache_size:
-            self._cache.popitem(last=False)
+        self._cache_put(key, seconds)
         return seconds
+
+    def _cache_get(self, key: CacheKey) -> int | None:
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            seconds, expires_at = entry
+            if self._monotonic() >= expires_at:
+                del self._cache[key]
+                return None
+            self._cache.move_to_end(key)
+            return seconds
+
+    def _cache_put(self, key: CacheKey, seconds: int) -> None:
+        if self.cache_ttl_sec == 0:
+            return
+        with self._lock:
+            self._cache[key] = (seconds, self._monotonic() + self.cache_ttl_sec)
+            self._cache.move_to_end(key)
+            if len(self._cache) > self.cache_size:
+                self._cache.popitem(last=False)
 
     def _request_duration(self, origin: Coordinate, dest: Coordinate, depart_local: datetime) -> int:
         params = {
@@ -93,7 +130,8 @@ class KakaoRouteProvider(RouteProvider):
             "destination": _lng_lat(dest),
             "departure_time": depart_local.strftime("%Y%m%d%H%M"),
         }
-        self.request_count += 1
+        with self._lock:
+            self.request_count += 1
         # requests 예외는 종류만 남기고 except 밖에서 새로 던진다. 원래 예외가 __context__로 따라붙지 않아
         # 요청 정보가 로그나 traceback으로 퍼지지 않는다 (from None은 출력만 숨기고 __context__는 남긴다).
         failure: type[requests.RequestException] | None = None
