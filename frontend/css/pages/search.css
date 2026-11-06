@@ -10,11 +10,11 @@
 .fields-stack { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .swap-button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--white); display: grid; place-items: center; color: var(--muted); cursor: pointer; margin-top: 24px; transition: .2s; }
 .swap-button:hover { color: var(--blue); border-color: #bad0fb; transform: rotate(180deg); }
-.autocomplete { position: absolute; top: 76px; left: 0; right: 0; z-index: 15; border: 1px solid var(--line); border-radius: 10px; background: var(--white); box-shadow: var(--shadow-hover); padding: 7px; }
+.autocomplete { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 15; border: 1px solid var(--line); border-radius: 10px; background: var(--white); box-shadow: var(--shadow-hover); padding: 7px; max-height: min(320px, 45dvh); overflow-y: auto; overscroll-behavior: contain; }
 .autocomplete-label { color: var(--muted-2); font-size: 10px; padding: 6px 9px; }
-.autocomplete button { border: 0; background: none; width: 100%; padding: 8px 9px; display: flex; gap: 10px; text-align: left; border-radius: 7px; cursor: pointer; }
-.autocomplete button:hover { background: var(--blue-pale); }
-.autocomplete button > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); }
+.autocomplete [role="option"], .autocomplete button { border: 0; background: none; width: 100%; padding: 8px 9px; display: flex; gap: 10px; text-align: left; border-radius: 7px; cursor: pointer; }
+.autocomplete [role="option"]:hover, .autocomplete [role="option"][aria-selected="true"], .autocomplete button:hover { background: var(--blue-pale); }
+.autocomplete [role="option"] > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); }
 .autocomplete b { display: block; font-size: 11px; }.autocomplete small { color: var(--muted); font-size: 9px; }
 .divider { height: 1px; background: var(--line); margin: 24px 0; }
 .date-time-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -39,3 +39,29 @@
 .recent-card > svg { color: var(--muted-2); }
 
 .section-row > a { color: var(--blue); font-size: 10px; display: flex; align-items: center; }
+
+.autocomplete[hidden] { display: none; }
+.autocomplete [role="option"] > div { min-width: 0; overflow-wrap: anywhere; }
+.autocomplete [role="option"] > span { flex: none; }
+.place-search-hint { color: var(--muted); font-size: 11px; margin-top: 12px; }
+.fields-stack { min-width: 0; }
+.field input { min-width: 0; width: 100%; }
+.search-card { max-width: calc(100% - 32px); }
+.recent-section { max-width: calc(100% - 32px); }
+@media (max-width: 760px) {
+  .search-page { padding-top: 30px; }
+  .search-heading { padding: 0 16px; }
+  .search-heading .page-title { font-size: 25px; }
+  .search-card { padding: 20px 16px; }
+  .fields-stack { grid-template-columns: minmax(0, 1fr); }
+  .route-inputs { grid-template-columns: 10px minmax(0, 1fr) 36px; gap: 9px; }
+  .route-dots { height: 145px; }
+  .route-dots span { height: 80px; }
+  .buffer-row { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .date-time-grid { grid-template-columns: minmax(0, 1fr); }
+  .recent-grid { grid-template-columns: minmax(0, 1fr); }
+  .quick-places { flex-wrap: wrap; }
+  .section-row { flex-wrap: wrap; gap: 10px; }
+  /* 모바일은 문서 흐름 안에 목록을 배치해 다음 입력칸을 가리지 않는다. */
+  .autocomplete { position: relative; top: auto; margin-top: 6px; }
+}

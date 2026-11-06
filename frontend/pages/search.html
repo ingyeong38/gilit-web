@@ -26,23 +26,25 @@
             <div class="fields-stack">
               <label class="field">
                 <span>출발지</span>
-                <div class="input-wrap"><i data-icon="search" data-size="19"></i><input name="from" placeholder="출발지를 입력하세요" autocomplete="off" /></div>
+                <div class="input-wrap"><i data-icon="search" data-size="19"></i><input name="from" placeholder="출발지를 입력하세요" autocomplete="off" aria-describedby="place-search-hint" /></div>
               </label>
               <label class="field">
                 <span>목적지</span>
-                <div class="input-wrap"><i data-icon="location" data-size="19"></i><input name="to" placeholder="목적지를 입력하세요" autocomplete="off" /></div>
+                <div class="input-wrap"><i data-icon="location" data-size="19"></i><input name="to" placeholder="목적지를 입력하세요" autocomplete="off" aria-describedby="place-search-hint" /></div>
               </label>
             </div>
             <button class="swap-button" id="swap-button" type="button" aria-label="출발지와 목적지 바꾸기"><i data-icon="swap"></i></button>
           </div>
+          <p class="place-search-hint" id="place-search-hint">장소명이나 주소로 검색하거나 장소명을 직접 입력하세요.</p>
           <div class="divider"></div>
           <div class="date-time-grid">
-            <label class="field"><span>도착 날짜</span><div class="input-wrap"><i data-icon="calendar" data-size="19"></i><input type="date" name="date" /></div></label>
-            <label class="field"><span>도착 희망 시각</span><div class="input-wrap"><i data-icon="clock" data-size="19"></i><input type="time" name="time" /></div></label>
+            <label class="field"><span>도착 날짜</span><div class="input-wrap"><i data-icon="calendar" data-size="19"></i><input type="date" name="date" aria-describedby="arrival-time-hint" /></div></label>
+            <label class="field"><span>도착 희망 시각</span><div class="input-wrap"><i data-icon="clock" data-size="19"></i><input type="time" name="time" aria-describedby="arrival-time-hint" /></div></label>
           </div>
+          <p class="place-search-hint" id="arrival-time-hint">도착 날짜와 시각은 한국 시간 기준입니다.</p>
           <div class="buffer-row">
             <div><span class="field-label">여유시간</span><small>주차나 이동 시간을 고려해 미리 도착해요</small></div>
-            <div class="segment-control" id="buffer-control">
+            <div class="segment-control" id="buffer-control" role="group" aria-label="도착 여유시간">
               <button type="button" data-buffer="0">없음</button>
               <button type="button" data-buffer="5">5분</button>
               <button type="button" data-buffer="10">10분</button>

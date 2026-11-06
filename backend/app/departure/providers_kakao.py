@@ -130,6 +130,25 @@ class KakaoRouteProvider(RouteProvider):
             "destination": _lng_lat(dest),
             "departure_time": depart_local.strftime("%Y%m%d%H%M"),
         }
+        body = self._request_json(self.url, params)
+        try:
+            route = body["routes"][0]
+            result_code = int(route["result_code"])
+        except (ValueError, KeyError, IndexError, TypeError):
+            raise RouteProviderError("길찾기 응답 형식이 올바르지 않습니다.") from None
+        if result_code != 0:
+            detail = self._clean(route.get("result_msg"))
+            raise RouteNotFoundError(f"경로를 찾을 수 없습니다{_suffix(detail)} (result_code={result_code})", result_code)
+        try:
+            seconds = int(route["summary"]["duration"])
+        except (ValueError, KeyError, TypeError):
+            raise RouteProviderError("길찾기 응답에 소요시간이 없습니다.") from None
+        if seconds < 0:
+            raise RouteProviderError("길찾기 응답의 소요시간이 올바르지 않습니다.")
+        return seconds
+
+    def _request_json(self, url: str, params: dict) -> dict:
+        """기존 인증·타임아웃·키 비노출 오류 처리를 상세 경로와 장소 검색에서도 공유한다."""
         with self._lock:
             self.request_count += 1
         # requests 예외는 종류만 남기고 except 밖에서 새로 던진다. 원래 예외가 __context__로 따라붙지 않아
@@ -137,7 +156,7 @@ class KakaoRouteProvider(RouteProvider):
         failure: type[requests.RequestException] | None = None
         try:
             response = self._session.get(
-                self.url,
+                url,
                 params=params,
                 headers={"Authorization": f"KakaoAK {self._api_key}"},
                 timeout=self.timeout,
@@ -167,20 +186,50 @@ class KakaoRouteProvider(RouteProvider):
             raise ProviderBadRequestError(f"길찾기 요청이 거부되었습니다 (HTTP {status}){_suffix(detail)}")
 
         try:
-            route = response.json()["routes"][0]
-            result_code = int(route["result_code"])
-        except (ValueError, KeyError, IndexError, TypeError):
-            raise RouteProviderError("길찾기 응답 형식이 올바르지 않습니다.") from None
-        if result_code != 0:
-            detail = self._clean(route.get("result_msg"))
-            raise RouteNotFoundError(f"경로를 찾을 수 없습니다{_suffix(detail)} (result_code={result_code})", result_code)
+            body = response.json()
+        except ValueError:
+            raise RouteProviderError("카카오 응답 형식이 올바르지 않습니다.") from None
+        if not isinstance(body, dict):
+            raise RouteProviderError("카카오 응답 형식이 올바르지 않습니다.")
+        return body
+
+    def get_detailed_route(self, origin: Coordinate, dest: Coordinate, depart_at: datetime, priority: str) -> dict:
+        if priority not in ("RECOMMEND", "TIME", "DISTANCE"):
+            raise ValueError("지원하지 않는 경로 우선순위")
+        body = self._request_json(self.url, {
+            "origin": _lng_lat(origin), "destination": _lng_lat(dest),
+            "departure_time": depart_at.astimezone(KST).strftime("%Y%m%d%H%M"),
+            "priority": priority, "summary": "false", "alternatives": "false", "road_details": "true",
+        })
         try:
-            seconds = int(route["summary"]["duration"])
-        except (ValueError, KeyError, TypeError):
-            raise RouteProviderError("길찾기 응답에 소요시간이 없습니다.") from None
-        if seconds < 0:
-            raise RouteProviderError("길찾기 응답의 소요시간이 올바르지 않습니다.")
-        return seconds
+            route = body["routes"][0]
+            code = int(route["result_code"])
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise RouteProviderError("길찾기 응답 형식이 올바르지 않습니다.") from None
+        if code != 0:
+            # 공급자 원문에는 입력/키가 들어갈 수 있으므로 사용자 오류에는 정적 문장만 사용한다.
+            raise RouteNotFoundError("해당 조건으로 자동차 경로를 찾을 수 없습니다.", code)
+        return route
+
+    def search_places(self, query: str) -> list[dict]:
+        query = query.strip()
+        if not query:
+            return []
+        body = self._request_json("https://dapi.kakao.com/v2/local/search/keyword.json", {"query": query, "size": 15})
+        try:
+            documents = body["documents"]
+            result = [{"id": str(p["id"]), "name": p["place_name"],
+                       "address": p.get("road_address_name") or p.get("address_name", ""),
+                       "lat": float(p["y"]), "lng": float(p["x"])} for p in documents]
+            if not result:
+                body = self._request_json("https://dapi.kakao.com/v2/local/search/address.json", {"query": query, "size": 15})
+                result = [{"id": f"address-{i}", "name": p["address_name"], "address": p["address_name"],
+                           "lat": float(p["y"]), "lng": float(p["x"])} for i, p in enumerate(body["documents"])]
+            for place in result:
+                Coordinate(place["lat"], place["lng"])
+        except (KeyError, TypeError, ValueError):
+            raise RouteProviderError("장소 검색 응답 형식이 올바르지 않습니다.") from None
+        return result
 
     def _error_detail(self, response: requests.Response) -> str:
         try:

@@ -4,10 +4,11 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import departure, health
+from app.api import departure, health, routes
 from app.api.errors import install_error_handlers
 from app.config import Settings, create_route_provider, load_env_files
 from app.departure import DepartureSolver, RouteProvider
+from app.routing import RouteResultCache
 
 
 def create_app(
@@ -31,6 +32,7 @@ def create_app(
         version="0.1.0",
         description="도착 희망 시각으로 권장 출발시각을 알려 주는 길찾기 서비스 API. 명세: docs/api-spec.md",
     )
+    app.state.route_cache = RouteResultCache(ttl=settings.route_cache_ttl_sec)
     app.state.settings = settings
     app.state.provider = provider
     app.state.solver = DepartureSolver(provider, settings.solver_config(), clock=clock)
@@ -46,4 +48,5 @@ def create_app(
     install_error_handlers(app)
     app.include_router(health.router)
     app.include_router(departure.router)
+    app.include_router(routes.router)
     return app
