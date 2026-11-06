@@ -9,3 +9,9 @@ API 문서(Swagger)는 http://127.0.0.1:8000/docs 에 있다. 테스트는 이 �
 from app.api.factory import create_app
 
 app = create_app()
+
+# 로컬 프론트와 API를 같은 출처에서 제공한다. 공개 범위는 frontend/로 한정한다.
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend", html=True), name="frontend")

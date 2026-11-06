@@ -1,3 +1,4 @@
+import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
 import { addFavorite, getFavorites, getRouteGraph, getRoutes, searchPlaces } from "/js/api.js";
 import { renderDurationChart } from "/js/components/charts.js";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -10,8 +11,7 @@ import {
   formatBuffer,
   formatFullDate,
   formatWon,
-  isValidDate,
-  isValidTime,
+  validateSearchConditions,
   timeOf,
   toIsoTime,
 } from "/js/utils.js";
@@ -25,9 +25,11 @@ function readSearchQuery() {
   const date = query.get("date");
   const time = query.get("time");
   const buffer = Number(query.get("buffer") ?? 0);
-  if (!from || !to || !isValidDate(date) || !isValidTime(time)) return null;
-  if (!Number.isInteger(buffer) || buffer < 0) return null;
-  return { from, to, date, time, buffer };
+  const coordinates = {};
+  for (const key of ["fromLat", "fromLng", "toLat", "toLng"]) {
+    if (query.has(key)) coordinates[key] = query.get(key);
+  }
+  return { from, to, date, time, buffer, ...coordinates };
 }
 
 function renderMessage({ title, text }) {
@@ -35,9 +37,9 @@ function renderMessage({ title, text }) {
     <div class="results-shell">
       <div class="empty-state">
         <span>${icon("search", { size: 24 })}</span>
-        <b>${title}</b>
-        <p>${text}</p>
-        <a class="btn btn-primary" href="/pages/search.html">길찾기로 이동</a>
+        <b>${escapeHtml(title)}</b>
+        <p>${escapeHtml(text)}</p>
+        <a class="btn btn-primary" href="/pages/search.html${escapeHtml(location.search)}">조건 수정</a>
       </div>
     </div>
   `;
@@ -66,8 +68,8 @@ function renderRouteCard(route, index, { date, buffer }) {
       <div class="route-details">
         <span><small>예상 소요</small><b>${route.durationMin}분</b></span>
         <span><small>거리</small><b>${route.distanceKm}km</b></span>
-        <span><small>통행료</small><b>${formatWon(route.toll)}</b></span>
-        <span><small>예상 유류비</small><b>${formatWon(route.fuel)}</b></span>
+        <span><small>통행료</small><b>${route.toll == null ? "미제공" : formatWon(route.toll)}</b></span>
+        <span><small>예상 유류비</small><b>${route.fuel == null ? "미제공" : formatWon(route.fuel)}</b></span>
       </div>
       <div class="arrival-info"><span>${icon("check", { size: 14 })} ${timeOf(route.arriveTime)} 도착 예정</span><span>여유 ${formatBuffer(buffer)}</span></div>
     </article>
@@ -130,8 +132,9 @@ function setupResults(search, routes, graph) {
       route,
       routeIndex: index,
       color,
-      from: search.from,
-      to: search.to,
+      from: USE_MOCK ? "김해시청" : search.from,
+      to: USE_MOCK ? "동의대학교" : search.to,
+      isExample: USE_MOCK,
     });
     const points = graph.find(({ routeId }) => routeId === route.id)?.points ?? [];
     const chart = document.getElementById("duration-chart");
@@ -139,6 +142,7 @@ function setupResults(search, routes, graph) {
     if (points.length > 0) {
       renderDurationChart(chart, { points, color, recommendedTime: route.departTime, range });
     }
+    document.querySelector(".ai-label").textContent = USE_MOCK ? "AI 경로 추천 요약" : "카카오 경로 안내";
     document.getElementById("ai-title").textContent = route.aiSummary.title;
     document.getElementById("ai-text").textContent = route.aiSummary.text;
   };
@@ -169,19 +173,23 @@ function setupResults(search, routes, graph) {
 
 async function init() {
   const search = readSearchQuery();
-  if (!search) {
-    renderMessage({ title: "검색 조건이 없어요", text: "출발지, 목적지, 도착 희망 시각을 입력해 주세요." });
+  const error = validateSearchConditions(search);
+  if (error) {
+    renderMessage({ title: "검색 조건을 확인해 주세요", text: error.message });
     return;
   }
 
   renderIcons();
   renderSummary(search);
   setupShareButton();
+  if (USE_MOCK) document.querySelector(".results-heading p").textContent = "예시 데이터입니다. 지도는 김해시청 → 동의대학교 예시 경로를 표시합니다.";
+
+  if (!USE_MOCK) document.querySelector(".results-heading p").textContent = "카카오 상세 도로 좌표와 해당 출발시각의 예상 소요시간을 표시합니다.";
 
   try {
     const arrive = toIsoTime(search.date, search.time);
     const [routes, graph] = await Promise.all([
-      getRoutes({ from: search.from, to: search.to, arrive, buffer: search.buffer }),
+      getRoutes({ ...search, arrive }),
       getRouteGraph({ from: search.from, to: search.to, arrive }),
     ]);
     if (routes.length === 0) {
@@ -189,8 +197,8 @@ async function init() {
       return;
     }
     setupResults(search, routes, graph);
-  } catch {
-    renderMessage({ title: "경로를 불러오지 못했어요", text: "잠시 후 다시 시도해 주세요." });
+  } catch (error) {
+    renderMessage({ title: "경로를 불러오지 못했어요", text: error.status >= 400 && error.status < 500 ? error.message : "실제 경로 조회에 실패했어요. 서버와 API 연결을 확인한 뒤 다시 시도해 주세요." });
   }
 }
 

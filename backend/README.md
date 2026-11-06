@@ -167,3 +167,18 @@ curl -X POST http://127.0.0.1:8000/api/departure \
 // 502: 카카오 인증 실패 등. 원인은 서버 로그에만 남는다
 { "message": "길찾기 정보를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요." }
 ```
+
+
+## 복원한 상세 도로 경로 API
+
+`app/api/routes.py`의 `/api/places`, `/api/routes`와 `app/routing.py`의 상세 좌표 변환을 복원했습니다. 기존 `KakaoRouteProvider` 인증/오류 처리 및 `DepartureSolver`를 재사용합니다. 기존 인증 라우터와 별도 인증 개발 진입점은 보존했습니다.
+
+프로젝트 루트에서:
+
+```sh
+ROUTE_PROVIDER=kakao backend/venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8003 --no-access-log
+```
+
+같은 서버가 frontend/를 제공하므로 별도 프론트 터미널은 필요 없습니다. 프론트 `USE_MOCK_ROUTES=false`, `BASE_URL="/api"`를 사용합니다. 서버 `.env`에 REST 키가 있어야 합니다. 기존 `.env`의 ROUTE_PROVIDER 값을 덮어쓰지 않고 실행 프로세스에만 kakao 모드를 적용합니다. 지도 키/기존 인증 설정은 변경하지 않습니다.
+
+새 전체 경로 결과 캐시는 `ROUTE_CACHE_TTL_SEC`로 제어하며 최대 64건, 같은 이름/좌표·도착시각·여유시간에 적용됩니다. TTL=0이면 끕니다. 응답 헤더 `X-Gilit-Route-Cache`에서 HIT/MISS를 확인합니다. 기존 소요시간 캐시와는 별개이고 실패·이미 지난 출발시각은 재사용하지 않습니다.

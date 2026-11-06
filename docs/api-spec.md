@@ -7,9 +7,9 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 
 | 메서드 | 경로 | 설명 | 로그인 | 프론트 함수 (`api.js`) | mock |
 | --- | --- | --- | --- | --- | --- |
-| GET | `/api/places?q=` | 장소 검색 | 불필요 | `searchPlaces` | `places.json` |
+| GET | `/api/places?q=` | 장소 검색 (카카오 모드 구현) | 불필요 | `searchPlaces` | `places.json` |
 | POST | `/api/departure` | 권장 출발시각 계산 (**구현됨**) | 불필요 | 없음 | - |
-| GET | `/api/routes?from=&to=&arrive=&buffer=` | 경로·권장 출발시각 | 불필요 | `getRoutes` | `routes.json` |
+| GET | `/api/routes?from=&to=&arrive=&buffer=` | 상세 도로 경로·권장 출발시각 (구현) | 불필요 | `getRoutes` | `routes.json` |
 | GET | `/api/routes/graph?from=&to=&arrive=` | 출발시각별 소요시간 | 불필요 | `getRouteGraph` | `routeGraph.json` |
 | POST | `/api/auth/signup` | 이메일 회원가입 | 불필요 | `signup` | localStorage |
 | POST | `/api/auth/login` | 이메일 로그인 | 불필요 | `loginWithEmail` | localStorage |
@@ -84,16 +84,18 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 - 경로: `arriveTime`은 `arrive - buffer`, `departTime`은 `arriveTime - durationMin`
 - 그래프: 마지막 출발시각이 `arrive`가 되도록 시각을 옮긴다
 - 기록·통계: 가장 최근 날짜가 오늘이 되도록 날짜를 옮긴다
-- 장소 검색: `name`에 `q`가 포함된 항목만 돌려준다
+- 장소 검색: 앞뒤 공백을 제거한 `q`가 `name` 또는 `address`에 포함된 항목을 돌려준다
 - 회원가입·로그인: 계정을 `localStorage`의 `gilit:mock:users`에 저장한다. 비밀번호는 평문이 아닌 SHA-256 값으로 두지만, 브라우저 안의 흉내일 뿐이다. 서버는 bcrypt를 쓴다.
 
 ## 길찾기 (로그인 불필요)
 
 ### GET /api/places?q=
 
-호출 방식 미정(해민과 합의 필요): 프론트엔드가 장소 검색 API를 직접 호출할지, 백엔드가 이 API로 중계할지 정하지 않았다.
+백엔드가 카카오 로컬 키워드 검색을 중계한다. 키워드 결과가 없으면 주소 검색을 시도한다. REST 키는 서버에서만 관리한다.
 
 요청: `GET /api/places?q=김해시청`
+
+`q`는 장소명 또는 주소 검색어다. 프론트는 앞뒤 공백을 제거해 전달한다. 응답은 장소명(`name`)과 주소(`address`)를 포함한 배열이며, 결과가 없으면 빈 배열이다. 목업은 제공된 예시 장소 범위 안에서 이름·주소 부분 일치로 검색한다. 실제 검색은 기존 `/api/places` 계약을 사용하며 백엔드 구현은 별도 범위다.
 
 ```json
 [
@@ -187,11 +189,20 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 
 ### GET /api/routes?from=&to=&arrive=&buffer=
 
-경로 비교 목록이다 (가안, 미구현). 출발시각 하나만 필요하면 위 `POST /api/departure`를 쓴다.
+실제 경로 비교 목록이다. 서버 `ROUTE_PROVIDER=kakao`와 프론트 `USE_MOCK_ROUTES=false`를 사용한다. 기존 출발시각 계산 엔진을 재사용한다.
+
+- `fromLat`, `fromLng`, `toLat`, `toLng`를 선택적으로 추가할 수 있다. 위도·경도를 쌍으로 검사하고 선택 좌표를 우선 사용한다. 좌표가 없는 기존 링크는 이름·주소 검색으로 장소가 하나로 확정될 때 조회한다.
+- 추천(RECOMMEND), 최단시간(TIME), 최단거리(DISTANCE)를 각각 계산하고 동일 좌표 경로는 중복 제거한다. 1~3개 카드가 반환될 수 있다.
+- 카카오 미래 길찾기에 `summary=false`, `road_details=true`, `alternatives=false`로 요청한다. `sections[].roads[].vertexes`의 경도·위도 쌍을 순서대로 `{lat, lng}`로 변환하고 연속 중복만 제거한다. 상세 좌표가 잘못되면 오류로 처리한다.
+- 각 카드의 `path`, `durationMin`, `distanceKm`, `toll`, `arriveTime`은 최종 계산에 사용한 동일 상세 응답에 대응한다. 다른 대안의 좌표와 summary를 혼합하지 않는다.
+- `dataSource=kakao`, `bufferApplied`, `converged`를 추가한다. 미제공 `fuel` 및 `toll`은 `null`이며 UI는 ‘미제공’으로 표시한다. `aiSummary`는 UI 호환용 정적 안내로 실제 모드에서 ‘카카오 경로 안내’로 표시한다.
+- 캐시가 없을 때 요청당 최대 `3 × DEPARTURE_MAX_CALLS`(기본 24회)의 길찾기 조회와 필요시 장소 검색이 발생한다. 성공한 전체 결과를 `ROUTE_CACHE_TTL_SEC`(기본 600초) 동안 프로세스 메모리에 최대 64건 저장한다. 출발시각이 지난 결과·만료·실패는 재사용하지 않는다. TTL=0이면 저장하지 않는다.
+- 캐시 키는 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간이다. 응답 헤더 `X-Gilit-Route-Cache: HIT|MISS`로 적용 여부를 확인한다. 캐시는 서버 재시작 시 사라지고 다중 프로세스 간 공유하지 않으며 동시 첫 요청은 중복 조회할 수 있다.
+- 실제 조회 실패 시 오류를 반환하고 예시 경로로 대체하지 않는다. 목업은 별도로 유지한다. 인증·즐겨찾기 등은 경로 전용 모드 플래그에 영향을 받지 않는다.
 
 요청: `GET /api/routes?from=김해시청&to=동의대학교&arrive=2026-11-02T09:00:00%2B09:00&buffer=10`
 
-`departTime`이 권장 출발시각이고, `arriveTime`은 `arrive`에서 `buffer`를 뺀 예상 도착 시각이다. `label`은 경로 구분 표시, `toll`은 통행료, `fuel`은 예상 유류비, `aiSummary`는 AI 경로 추천 요약이다. 추천 경로를 첫 번째로 돌려준다.
+`departTime`은 권장 출발시각이다. 실제 모드의 `arriveTime`은 최종 상세 응답의 소요시간을 더한 값이고 목업에서는 `arrive - buffer`다. 아래는 기존 목업 형식 예시이며 실제 `path`에는 도로의 상세 좌표가 포함된다. 추천 경로를 첫 번째로 돌려준다.
 
 ```json
 [
@@ -218,6 +229,8 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 ```
 
 ### GET /api/routes/graph?from=&to=&arrive=
+
+실제 API는 미구현이다. 실제 경로 모드에서는 프론트가 이 요청을 보내지 않고 차트를 숨긴다. 예시 모드는 기존 그래프를 유지한다.
 
 요청: `GET /api/routes/graph?from=김해시청&to=동의대학교&arrive=2026-11-02T09:00:00%2B09:00`
 

@@ -1,6 +1,6 @@
 // 서버 호출은 이 파일에만 둔다.
 // USE_MOCK이면 js/mock/*.json을 읽고, 서버가 계산할 값(시각, 필터링, 저장)만 여기서 흉내 낸다.
-import { USE_MOCK, BASE_URL } from "/js/config.js";
+import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL } from "/js/config.js";
 import { addMinutes, dateOf, daysFrom, minutesBetween, toDateString } from "/js/utils.js";
 
 const MOCK_FAVORITES_KEY = "gilit:mock:favorites";
@@ -49,8 +49,8 @@ function daysToToday(latestDate) {
   return Math.round(minutesBetween(`${latestDate}T00:00:00Z`, `${toDateString()}T00:00:00Z`) / 1440);
 }
 
-export async function getRoutes({ from, to, arrive, buffer } = {}) {
-  if (!USE_MOCK) return requestJson(buildUrl("/routes", { from, to, arrive, buffer }));
+export async function getRoutes({ from, to, arrive, buffer, fromLat, fromLng, toLat, toLng } = {}) {
+  if (!USE_MOCK_ROUTES) return requestJson(buildUrl("/routes", { from, to, arrive, buffer, fromLat, fromLng, toLat, toLng }));
 
   const routes = await readMock("routes.json");
   if (!arrive) return routes;
@@ -63,7 +63,8 @@ export async function getRoutes({ from, to, arrive, buffer } = {}) {
 }
 
 export async function getRouteGraph({ from, to, arrive } = {}) {
-  if (!USE_MOCK) return requestJson(buildUrl("/routes/graph", { from, to, arrive }));
+  // 실제 그래프 API는 별도 범위다. 미구현 그래프가 경로 표시를 막지 않게 한다.
+  if (!USE_MOCK_ROUTES) return [];
 
   const graph = await readMock("routeGraph.json");
   if (!arrive) return graph;
@@ -77,11 +78,14 @@ export async function getRouteGraph({ from, to, arrive } = {}) {
   });
 }
 
-export async function searchPlaces(q) {
-  if (!USE_MOCK) return requestJson(buildUrl("/places", { q }));
+export async function searchPlaces(q = "") {
+  q = q.trim();
+  if (!USE_MOCK_ROUTES) return requestJson(buildUrl("/places", { q }));
 
   const places = await readMock("places.json");
-  return q ? places.filter((place) => place.name.includes(q)) : places;
+  const keyword = q.toLocaleLowerCase("ko-KR");
+  return keyword ? places.filter((place) => [place.name, place.address]
+    .some((value) => String(value ?? "").toLocaleLowerCase("ko-KR").includes(keyword))) : places;
 }
 
 async function readMockFavorites() {

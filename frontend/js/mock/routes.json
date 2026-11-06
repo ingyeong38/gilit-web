@@ -1,6 +1,7 @@
 [
   {
     "id": "route-1",
+    "dataSource": "mock",
     "label": "추천",
     "name": "남해고속도로 경유",
     "departTime": "2026-11-02T08:12:00+09:00",
@@ -22,6 +23,7 @@
   },
   {
     "id": "route-2",
+    "dataSource": "mock",
     "label": "최단",
     "name": "동서고가로 경유",
     "departTime": "2026-11-02T08:05:00+09:00",
@@ -43,6 +45,7 @@
   },
   {
     "id": "route-3",
+    "dataSource": "mock",
     "label": "무료도로",
     "name": "낙동대로 경유",
     "departTime": "2026-11-02T07:58:00+09:00",
