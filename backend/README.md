@@ -91,7 +91,8 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 - 좌표: 카카오는 `경도,위도` 순서다. 엔진의 `Coordinate`(위도, 경도)를 어댑터에서 바꾼다.
 - 출발시각: 한국 시간 `YYYYMMDDHHmm`. 초는 내린다. 도착 희망 시각은 내일 이후로 준다 (미래 운행 정보 API).
 - 이동수단: `car`만 된다. `transit`은 `UnsupportedTravelModeError`("대중교통은 아직 지원하지 않습니다.").
-- 캐시: 같은 (출발지, 목적지, 출발시각(분), 이동수단)은 프로세스 메모리 LRU 캐시(기본 1,024건)로 다시 부르지 않는다. 항목은 `ROUTE_CACHE_TTL_SEC`(기본 10분)이 지나면 버려 예측값이 갱신된다. 적중해도 만료 시각은 늘어나지 않는다. 오류는 캐시하지 않는다. 웹 서버는 어댑터 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서 고친다. 서버 프로세스를 여러 개 띄우면 캐시는 프로세스마다 따로다.
+- 경로 옵션: `get_route_summary(…, option)`은 `summary=true`로 소요시간·거리·통행료(`summary.fare.toll`, 없으면 `None`)만 받는다. 옵션(`RouteOption`, `app/departure/models.py`)은 `priority`(`RECOMMEND`/`TIME`/`DISTANCE`)와 `avoid`(`toll` 등, 여러 개면 `|`로 잇는다)로 정한다. 경로 비교의 4개 옵션은 `ROUTE_OPTIONS`(추천, 최단시간, 최단거리, 무료도로=`avoid=toll`)다. `get_duration`은 추천 옵션의 요약이다. `get_detailed_route(…, priority, avoid)`는 지도용 상세 좌표를 받고 캐시하지 않는다.
+- 캐시: 같은 (출발지, 목적지, 출발시각(분), 경로 옵션)은 프로세스 메모리 LRU 캐시(기본 1,024건)로 다시 부르지 않는다. `/api/departure`와 경로 비교의 추천 옵션은 같은 캐시 항목을 쓴다. 항목은 `ROUTE_CACHE_TTL_SEC`(기본 10분)이 지나면 버려 예측값이 갱신된다. 적중해도 만료 시각은 늘어나지 않는다. 오류는 캐시하지 않는다. 웹 서버는 어댑터 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서 고친다. 서버 프로세스를 여러 개 띄우면 캐시는 프로세스마다 따로다.
 - 쿼터: 일일 5,000건. 검색 한 번에 최대 `DEPARTURE_MAX_CALLS`(8)회라 하루 약 625회 검색까지 된다. `request_count`로 실제 호출 수를 볼 수 있다.
 - 타임아웃: 10초.
 

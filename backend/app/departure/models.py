@@ -62,3 +62,47 @@ class DepartureResult:
             "providerCalls": self.provider_calls,
             "converged": self.converged,
         }
+
+
+# 카카오 미래 운행 정보 API의 priority·avoid 값
+ROUTE_PRIORITIES = ("RECOMMEND", "TIME", "DISTANCE")
+ROUTE_AVOIDS = ("ferries", "toll", "motorway", "schoolzone", "uturn")
+
+
+@dataclass(frozen=True)
+class RouteOption:
+    """경로 비교의 경로 옵션. key는 API 카드의 id로 쓴다 (docs/api-spec.md GET /api/routes)."""
+
+    key: str
+    label: str
+    priority: str = "RECOMMEND"
+    avoid: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.priority not in ROUTE_PRIORITIES:
+            raise ValueError(f"지원하지 않는 경로 우선순위입니다: {self.priority}")
+        unknown = [value for value in self.avoid if value not in ROUTE_AVOIDS]
+        if unknown:
+            raise ValueError(f"지원하지 않는 회피 옵션입니다: {', '.join(unknown)}")
+
+
+ROUTE_OPTIONS: dict[str, RouteOption] = {
+    option.key: option
+    for option in (
+        RouteOption("recommend", "추천", "RECOMMEND"),
+        RouteOption("time", "최단시간", "TIME"),
+        RouteOption("distance", "최단거리", "DISTANCE"),
+        RouteOption("free", "무료도로", "RECOMMEND", ("toll",)),
+    )
+}
+# 우선순위를 정하지 않은 조회(get_duration, /api/departure)는 추천 경로다. 경로 비교의 recommend와 캐시를 함께 쓴다.
+DEFAULT_ROUTE_OPTION = ROUTE_OPTIONS["recommend"]
+
+
+@dataclass(frozen=True)
+class RouteSummary:
+    """한 출발시각, 한 경로 옵션의 요약 (카카오 routes[0].summary)."""
+
+    duration_sec: int  # 예상 소요시간
+    distance_m: int  # 거리
+    toll: int | None  # 통행료(원). 응답에 없으면 None

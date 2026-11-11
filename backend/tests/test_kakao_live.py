@@ -2,7 +2,7 @@
 
     venv/Scripts/python -m pytest -m kakao_live
 
-KAKAO_REST_API_KEY(환경변수, backend/.env, 루트 .env 순)가 없으면 건너뛴다. 한 번 실행에 API를 약 10회 부른다.
+KAKAO_REST_API_KEY(환경변수, backend/.env, 루트 .env 순)가 없으면 건너뛴다. 한 번 실행에 API를 약 12회 부른다.
 """
 
 import os
@@ -12,7 +12,7 @@ import pytest
 from dotenv import dotenv_values
 
 from app.config import ENV_FILES
-from app.departure import KST, DepartureSolver, KakaoRouteProvider, RouteNotFoundError
+from app.departure import KST, ROUTE_OPTIONS, DepartureSolver, KakaoRouteProvider, RouteNotFoundError
 from tests.conftest import DONGEUI_UNIV, GIMHAE_CITY_HALL
 
 
@@ -62,3 +62,18 @@ def test_live_solver_finds_departure_within_budget(provider):
     assert result.buffer_applied
     assert result.arrive_at <= arrive - timedelta(minutes=10)
     assert result.depart_at < arrive
+
+
+def test_live_summary_has_toll_and_avoid_toll_is_supported(provider):
+    """API 2회: summary=true 응답에 fare.toll이 있는지, avoid=toll이 받아들여져 통행료 없는 경로가 오는지."""
+    depart = tomorrow_at(8, 10)
+
+    recommend = provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, depart, ROUTE_OPTIONS["recommend"])
+    free = provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, depart, ROUTE_OPTIONS["free"])
+    print(f"\n추천: {recommend}\n무료도로(avoid=toll): {free}")
+
+    assert recommend.toll is not None, "summary=true 응답에 fare.toll이 없습니다."
+    assert free.toll == 0, "avoid=toll을 보냈는데 통행료가 있는 경로가 왔습니다."
+    if recommend.toll > 0:
+        # 추천 경로에 통행료가 있을 때만 avoid가 실제로 경로를 바꿨는지 확인할 수 있다.
+        assert (free.distance_m, free.duration_sec) != (recommend.distance_m, recommend.duration_sec)
