@@ -70,6 +70,8 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `DEPARTURE_MAX_CALLS` | `8` | 요청 하나당 소요시간 조회 최대 횟수 |
 | `DEPARTURE_SEARCH_WINDOW_MIN` | `360` | 도착 희망 시각 몇 분 전까지 출발시각을 찾을지 |
 | `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 소요시간 캐시 유지 시간(초). `0`이면 캐시하지 않는다 |
+| `ROUTE_COMPARE_OPTIONS` | `recommend,time,distance,free` | 경로 비교에 쓸 옵션. 적은 순서가 카드 순서다 |
+| `ROUTE_COMPARE_MAX_CALLS` | `6` | 경로 비교의 옵션 하나당 소요시간 조회 상한. 상세 경로 조회는 옵션당 1~2회 따로 든다 |
 | `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다 |
 
 테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`를 두어도 기본 테스트는 실제 API를 부르지 않는다.
