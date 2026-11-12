@@ -9,19 +9,22 @@ backend/
 ├── app/
 │   ├── main.py                # 웹 서버 진입점 (uvicorn app.main:app)
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
+│   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
 │   ├── api/                   # 웹 API (FastAPI)
 │   │   ├── factory.py         # create_app: Provider·Solver를 한 번 만들고 CORS, 오류 처리, 라우터를 붙인다
 │   │   ├── departure.py       # POST /api/departure
+│   │   ├── routes.py          # GET /api/places, GET /api/routes (경로 비교), 장소 확정, 응답 캐시
 │   │   ├── health.py          # GET /health
 │   │   ├── schemas.py         # 요청·응답 모델과 입력 검증
 │   │   └── errors.py          # 예외 -> { "message": ... } 응답
 │   └── departure/             # 출발시각 역산 엔진 (SFR-003)
-│       ├── models.py          # Coordinate, TravelMode, DepartureResult
+│       ├── models.py          # Coordinate, TravelMode, DepartureResult, RouteOption, RouteSummary
 │       ├── providers.py       # RouteProvider(인터페이스), MockRouteProvider
 │       ├── providers_kakao.py # KakaoRouteProvider (카카오모빌리티 미래 운행 정보)
 │       ├── solver.py          # DepartureSolver, SolverConfig
 │       ├── errors.py          # 예외
 │       └── cli.py             # 실행 예제
+├── scripts/check_road_routes.py # 수동 실조회 점검 (호출이 많다. 아래 "경로 비교" 참고)
 ├── tests/                     # pytest (test_kakao_live.py는 실제 API 호출, 기본 실행에서 제외)
 ├── pyproject.toml             # pytest 설정
 ├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn
@@ -69,7 +72,7 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `KAKAO_REST_API_KEY` | 없음 | `kakao`일 때 필수. 카카오 개발자 앱의 REST API 키 |
 | `DEPARTURE_MAX_CALLS` | `8` | 요청 하나당 소요시간 조회 최대 횟수 |
 | `DEPARTURE_SEARCH_WINDOW_MIN` | `360` | 도착 희망 시각 몇 분 전까지 출발시각을 찾을지 |
-| `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 소요시간 캐시 유지 시간(초). `0`이면 캐시하지 않는다 |
+| `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 요약 조회 캐시와 경로 비교 응답 캐시의 유지 시간(초). `0`이면 캐시하지 않는다 |
 | `ROUTE_COMPARE_OPTIONS` | `recommend,time,distance,free` | 경로 비교에 쓸 옵션. 적은 순서가 카드 순서다 |
 | `ROUTE_COMPARE_MAX_CALLS` | `6` | 경로 비교의 옵션 하나당 소요시간 조회 상한. 상세 경로 조회는 옵션당 1~2회 따로 든다 |
 | `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다 |
@@ -119,7 +122,7 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 
 ## 웹 API
 
-`POST /api/departure`와 `GET /health`를 구현했다. 전체 명세(필드 규칙, 오류 표, 해민과 합의할 항목)는 `docs/api-spec.md`에 있다.
+`POST /api/departure`, `GET /api/routes`(아래 "경로 비교"), `GET /api/places`(카카오 모드만), `GET /health`를 구현했다. 전체 명세(필드 규칙, 오류 표, 해민과 합의할 항목)는 `docs/api-spec.md`에 있다.
 
 - 앱은 `app/api/factory.py`의 `create_app`이 만든다. RouteProvider와 DepartureSolver는 이때 한 번만 만들어 모든 요청이 함께 쓴다 (카카오 어댑터의 캐시·HTTP 세션 공유).
 - 엔드포인트는 동기 함수라 FastAPI가 스레드 풀에서 실행한다. 엔진과 카카오 어댑터가 블로킹 I/O(requests)를 쓰기 때문이다.
@@ -172,16 +175,39 @@ curl -X POST http://127.0.0.1:8000/api/departure \
 ```
 
 
-## 복원한 상세 도로 경로 API
+## 경로 비교 (`GET /api/routes`, F5)
 
-`app/api/routes.py`의 `/api/places`, `/api/routes`와 `app/routing.py`의 상세 좌표 변환을 복원했습니다. 기존 `KakaoRouteProvider` 인증/오류 처리 및 `DepartureSolver`를 재사용합니다. 기존 인증 라우터와 별도 인증 개발 진입점은 보존했습니다.
+`app/api/routes.py`(API, 장소 확정, 응답 캐시)와 `app/routing.py`의 `compare_routes`(비교 서비스)가 처리한다. 필드·오류·mock 동작 전체는 `docs/api-spec.md`의 `GET /api/routes`를 본다.
 
-프로젝트 루트에서:
+- 옵션은 `ROUTE_COMPARE_OPTIONS`(기본 추천, 최단시간, 최단거리, 무료도로)다. 옵션마다 `OptionRouteProvider`가 엔진(`DepartureSolver`)의 소요시간 조회를 그 옵션의 카카오 요약 조회로 바꾸고, 확정된 출발시각에 상세 경로를 한 번 받아 카드를 만든다. 엔진 코드는 그대로다.
+- 같은 길로 확인된 옵션은 한 카드의 `options`에 합친다. 무료도로 결과에 통행료가 있으면 그 카드를 뺀다. 일부 옵션이 실패하면 그 카드만 빼고, 이유는 `app.api` 로거로 남긴다 (무료도로 없음은 INFO, 그 밖은 WARNING).
+- 성공한 전체 응답은 `ROUTE_CACHE_TTL_SEC` 동안 최대 64건 저장한다. 응답 헤더 `X-Gilit-Route-Cache: HIT|MISS`로 확인한다.
+- mock 모드에서도 동작하지만 장소 검색이 없으므로 좌표 파라미터(`fromLat` 등)가 필요하다.
+
+실측 (2026-11-12, `ROUTE_PROVIDER=kakao`, 김해시청 → 동의대학교, 다음 날 09:00 도착, 여유 10분, 좌표 전달):
+
+| 카드 | options | name | 출발 | 소요 | 거리 | 통행료 |
+| --- | --- | --- | --- | --- | --- | --- |
+| recommend | recommend, time | 남해고속도로(순천-부산) 경유 | 08:19 | 31분 | 21.97km | 1,300원 |
+| distance | distance | 관문대로 경유 | 08:05 | 45분 | 19.686km | 0원 |
+| free | free | 관문대로 경유 | 08:09 | 41분 | 21.251km | 0원 |
+
+카카오 호출은 18회였고, 같은 조건을 다시 부르면 캐시 HIT로 0회였다. 요청 하나의 최악은 옵션마다 요약 6회 + 상세 1~2회로 32회다 (`ROUTE_COMPARE_MAX_CALLS`로 조절). 일일 쿼터 5,000건이면 하루 약 270회 비교다. 상한을 너무 낮추면(Mock 출근 시간대 기준 3회) 출발시각을 찾지 못한 옵션이 빠진다.
+
+### 프론트와 함께 실행
+
+`app/main.py`는 API와 함께 `frontend/`를 같은 출처로 제공하므로 프론트 서버를 따로 띄우지 않아도 된다. 프론트는 `USE_MOCK_ROUTES=false`, `BASE_URL="/api"`를 쓴다. 프로젝트 루트에서:
 
 ```sh
-ROUTE_PROVIDER=kakao backend/venv/bin/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8003 --no-access-log
+ROUTE_PROVIDER=kakao backend/venv/Scripts/python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8003 --no-access-log
 ```
 
-같은 서버가 frontend/를 제공하므로 별도 프론트 터미널은 필요 없습니다. 프론트 `USE_MOCK_ROUTES=false`, `BASE_URL="/api"`를 사용합니다. 서버 `.env`에 REST 키가 있어야 합니다. 기존 `.env`의 ROUTE_PROVIDER 값을 덮어쓰지 않고 실행 프로세스에만 kakao 모드를 적용합니다. 지도 키/기존 인증 설정은 변경하지 않습니다.
+macOS·Linux는 `backend/venv/bin/python`이다. `ROUTE_PROVIDER=kakao`는 이 프로세스에만 적용되고 `.env`의 값은 바꾸지 않는다. `.env`에 `KAKAO_REST_API_KEY`가 있어야 한다.
 
-새 전체 경로 결과 캐시는 `ROUTE_CACHE_TTL_SEC`로 제어하며 최대 64건, 같은 이름/좌표·도착시각·여유시간에 적용됩니다. TTL=0이면 끕니다. 응답 헤더 `X-Gilit-Route-Cache`에서 HIT/MISS를 확인합니다. 기존 소요시간 캐시와는 별개이고 실패·이미 지난 출발시각은 재사용하지 않습니다.
+### 수동 실조회 점검 (`scripts/check_road_routes.py`)
+
+두 구간(장소 이름 → 장소 검색 → 경로 비교)을 실제 카카오로 조회해 카드·제외 옵션·조회 수를 출력한다. **최대 약 70회** 호출하므로 필요할 때만 실행한다. 키는 출력하지 않는다.
+
+```sh
+cd backend && venv/Scripts/python scripts/check_road_routes.py
+```
