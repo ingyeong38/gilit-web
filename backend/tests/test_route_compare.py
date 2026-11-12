@@ -333,6 +333,18 @@ def test_route_name_falls_back_to_label(roads):
     assert _route_name({"sections": [{"roads": roads}]}, "최단거리") == "최단거리"
 
 
+def test_mock_card_names_use_main_road_not_connector():
+    """Mock 상세 경로는 연결도로 두 조각의 합보다 본선이 길어야 한다 (연결도로 이름이 뽑히던 회귀)."""
+    result = compare(MockRouteProvider())
+
+    assert [(card.option.key, card.name) for card in result.cards] == [
+        ("recommend", "가상 고속도로 경유"),
+        ("time", "가상 도시고속도로 경유"),
+        ("distance", "가상 간선도로 경유"),
+        ("free", "가상 국도 경유"),
+    ]
+
+
 def test_unnamed_roads_use_label_in_card():
     card = compare(FakeCompareProvider(recommend=FakeRoute(road_name=None)), ALL_OPTIONS[:1]).cards[0]
 

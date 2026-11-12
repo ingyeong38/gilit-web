@@ -194,7 +194,8 @@ class MockRouteProvider(RouteProvider):
         summary = self._summary(origin, dest, depart_at, profile)
         points = _mock_path(origin, dest, profile.bend)
         # 앞뒤 짧은 연결도로와 가운데 긴 본선으로 나눈다. 경계 좌표는 카카오처럼 양쪽 도로에 모두 들어간다.
-        cut1, cut2 = MOCK_PATH_POINTS // 4, MOCK_PATH_POINTS - 1 - MOCK_PATH_POINTS // 4
+        # 이름이 같은 연결도로 두 조각의 합(2+2구간)보다 본선(8구간)이 길어야 카드 이름이 본선으로 정해진다.
+        cut1, cut2 = MOCK_PATH_POINTS // 6, MOCK_PATH_POINTS - 1 - MOCK_PATH_POINTS // 6
         pieces = [
             ("가상 연결도로", points[: cut1 + 1]),
             (profile.road_name, points[cut1 : cut2 + 1]),
