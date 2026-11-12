@@ -10,6 +10,7 @@ import {
   escapeHtml,
   formatBuffer,
   formatFullDate,
+  formatRouteLabel,
   formatWon,
   validateSearchConditions,
   timeOf,
@@ -54,12 +55,21 @@ function renderSummary({ from, to, date, time, buffer }) {
   document.getElementById("edit-link").href = `/pages/search.html${location.search}`;
 }
 
+// 서버는 지금 출발해도 여유를 둘 수 없으면 여유 없이 계산하고 bufferApplied=false를 준다 (여유 0분 요청도 false).
+// 목업(routes.json)에는 이 필드가 없으므로 없으면 반영된 것으로 본다.
+function renderBufferNote(route, buffer) {
+  if (buffer > 0 && route.bufferApplied === false) {
+    return '<span class="buffer-missed">여유시간 미반영</span>';
+  }
+  return `<span>여유 ${formatBuffer(buffer)}</span>`;
+}
+
 function renderRouteCard(route, index, { date, buffer }) {
   const isPreviousDay = dateOf(route.departTime) !== date;
   return `
     <article class="route-card" role="button" tabindex="0" aria-pressed="false" data-index="${index}">
       <div class="route-card-head">
-        <span class="route-tag tag-${index}">${index === 0 ? icon("spark", { size: 13 }) : ""}${escapeHtml(route.label)}</span>
+        <span class="route-tag tag-${index}">${index === 0 ? icon("spark", { size: 13 }) : ""}${escapeHtml(formatRouteLabel(route))}</span>
         <button class="star-button" type="button" aria-label="목적지를 즐겨찾기에 저장">${icon("star", { size: 19 })}</button>
       </div>
       <div class="route-name">${escapeHtml(route.name)}</div>
@@ -71,7 +81,7 @@ function renderRouteCard(route, index, { date, buffer }) {
         <span><small>통행료</small><b>${route.toll == null ? "미제공" : formatWon(route.toll)}</b></span>
         <span><small>예상 유류비</small><b>${route.fuel == null ? "미제공" : formatWon(route.fuel)}</b></span>
       </div>
-      <div class="arrival-info"><span>${icon("check", { size: 14 })} ${timeOf(route.arriveTime)} 도착 예정</span><span>여유 ${formatBuffer(buffer)}</span></div>
+      <div class="arrival-info"><span>${icon("check", { size: 14 })} ${timeOf(route.arriveTime)} 도착 예정</span>${renderBufferNote(route, buffer)}</div>
     </article>
   `;
 }

@@ -19,7 +19,7 @@
 .route-card.selected { border: 1.5px solid var(--blue); background: var(--blue-pale); box-shadow: 0 5px 17px rgba(37,99,235,.09); }
 .route-card-head { display: flex; justify-content: space-between; align-items: center; }
 .route-tag { display: inline-flex; align-items: center; gap: 4px; border-radius: 5px; padding: 4px 7px; background: var(--blue-soft); color: var(--blue); font-size: 9px; font-weight: 800; }
-.tag-1 { background: var(--green-soft); color: var(--green); }.tag-2 { background: var(--orange-soft); color: #cf7900; }
+.tag-1 { background: var(--green-soft); color: var(--green); }.tag-2 { background: var(--orange-soft); color: #cf7900; }.tag-3 { background: #f3effe; color: #7c3aed; }
 .star-button { border: 0; background: none; color: var(--muted-2); cursor: pointer; padding: 3px; display: grid; place-items: center; }
 .star-button:hover, .star-button.active { color: var(--orange); }
 .route-name { color: var(--muted); font-size: 10px; margin-top: 4px; }
@@ -31,6 +31,7 @@
 .route-details small, .route-details b { display: block; }.route-details small { color: var(--muted); font-size: 8px; }.route-details b { font-size: 10px; margin-top: 3px; }
 .arrival-info { margin-top: 11px; display: flex; justify-content: space-between; align-items: center; font-size: 9px; color: var(--muted); }
 .arrival-info span:first-child { color: var(--green); display: flex; align-items: center; gap: 4px; font-weight: 700; }
+.arrival-info .buffer-missed { color: #cf7900; font-weight: 700; }
 .map { height: 378px; background: #e9edf1; border-radius: var(--radius); overflow: hidden; position: relative; box-shadow: var(--shadow); border: 1px solid #dfe4e8; }
 .map-grid { position: absolute; inset: -50px; opacity: .62; background-color: #eef1f3; background-image: linear-gradient(27deg, transparent 48%, #d9dee2 49%, #d9dee2 51%, transparent 52%), linear-gradient(153deg, transparent 48%, #dde2e5 49%, #dde2e5 51%, transparent 52%); background-size: 92px 78px; transform: rotate(-7deg); }
 .map > .route-preview { position: absolute; inset: 0; width: 100%; height: 100%; }
