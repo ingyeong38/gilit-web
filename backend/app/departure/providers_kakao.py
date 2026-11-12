@@ -7,8 +7,11 @@ GET https://apis-navi.kakaomobility.com/v1/future/directions
 - 경로가 없으면 HTTP 200에 routes[0].result_code != 0으로 온다 (예: 104 출발지와 도착지가 5m 이내).
 - 일일 쿼터(5,000건)가 있으므로 같은 조회는 메모리 캐시로 다시 부르지 않는다.
   예측값이 갱신되도록 캐시 항목은 cache_ttl_sec(기본 10분)이 지나면 버린다.
+- 경로 옵션은 priority(RECOMMEND, TIME, DISTANCE)와 avoid(toll 등, 여러 개면 |로 잇는다)로 고른다.
+  요약 조회(get_route_summary)는 summary=true로 경로 좌표 없이 받고, 옵션마다 캐시를 따로 둔다.
 """
 
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -27,14 +30,23 @@ from app.departure.errors import (
     RouteProviderError,
     UnsupportedTravelModeError,
 )
-from app.departure.models import KST, Coordinate, TravelMode
+from app.departure.models import (
+    DEFAULT_ROUTE_OPTION,
+    KST,
+    ROUTE_AVOIDS,
+    ROUTE_PRIORITIES,
+    Coordinate,
+    RouteOption,
+    RouteSummary,
+    TravelMode,
+)
 from app.departure.providers import RouteProvider
 
 KAKAO_FUTURE_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/future/directions"
 MAX_DETAIL_LENGTH = 100  # 오류 메시지에 붙이는 카카오 안내 문구의 최대 길이
 DEFAULT_CACHE_TTL_SEC = 600.0
 
-CacheKey = tuple[Coordinate, Coordinate, datetime, TravelMode]
+CacheKey = tuple[Coordinate, Coordinate, datetime, RouteOption]
 
 
 class KakaoRouteProvider(RouteProvider):
@@ -73,7 +85,7 @@ class KakaoRouteProvider(RouteProvider):
         self.request_count = 0  # 실제로 API를 부른 횟수 (쿼터 확인용, 캐시 적중은 세지 않는다)
         self._monotonic = monotonic
         self._lock = threading.Lock()
-        self._cache: OrderedDict[CacheKey, tuple[int, float]] = OrderedDict()  # 값: (소요시간 초, 만료 시각)
+        self._cache: OrderedDict[CacheKey, tuple[RouteSummary, float]] = OrderedDict()  # 값: (요약, 만료 시각)
 
     def __repr__(self) -> str:
         return (
@@ -91,44 +103,60 @@ class KakaoRouteProvider(RouteProvider):
         travel_mode = TravelMode(travel_mode)
         if travel_mode is not TravelMode.CAR:
             raise UnsupportedTravelModeError("대중교통은 아직 지원하지 않습니다.")
+        # 우선순위를 정하지 않은 조회는 추천 경로다. 경로 비교의 recommend 옵션과 같은 캐시를 쓴다.
+        return self.get_route_summary(origin, dest, depart_at, DEFAULT_ROUTE_OPTION).duration_sec
+
+    def get_route_summary(
+        self,
+        origin: Coordinate,
+        dest: Coordinate,
+        depart_at: datetime,
+        option: RouteOption = DEFAULT_ROUTE_OPTION,
+    ) -> RouteSummary:
+        """경로 옵션별 요약(소요시간·거리·통행료). (출발지, 목적지, 출발시각(분), 옵션)마다 캐시한다."""
         if depart_at.tzinfo is None:
             raise ValueError("depart_at에는 시간대 정보가 있어야 합니다.")
         depart_local = depart_at.astimezone(KST).replace(second=0, microsecond=0)
 
-        key = (origin, dest, depart_local, travel_mode)
+        key = (origin, dest, depart_local, option)
         cached = self._cache_get(key)
         if cached is not None:
             return cached
-        seconds = self._request_duration(origin, dest, depart_local)
-        self._cache_put(key, seconds)
-        return seconds
+        summary = self._request_summary(origin, dest, depart_local, option)
+        self._cache_put(key, summary)
+        return summary
 
-    def _cache_get(self, key: CacheKey) -> int | None:
+    def _cache_get(self, key: CacheKey) -> RouteSummary | None:
         with self._lock:
             entry = self._cache.get(key)
             if entry is None:
                 return None
-            seconds, expires_at = entry
+            summary, expires_at = entry
             if self._monotonic() >= expires_at:
                 del self._cache[key]
                 return None
             self._cache.move_to_end(key)
-            return seconds
+            return summary
 
-    def _cache_put(self, key: CacheKey, seconds: int) -> None:
+    def _cache_put(self, key: CacheKey, summary: RouteSummary) -> None:
         if self.cache_ttl_sec == 0:
             return
         with self._lock:
-            self._cache[key] = (seconds, self._monotonic() + self.cache_ttl_sec)
+            self._cache[key] = (summary, self._monotonic() + self.cache_ttl_sec)
             self._cache.move_to_end(key)
             if len(self._cache) > self.cache_size:
                 self._cache.popitem(last=False)
 
-    def _request_duration(self, origin: Coordinate, dest: Coordinate, depart_local: datetime) -> int:
+    def _request_summary(
+        self, origin: Coordinate, dest: Coordinate, depart_local: datetime, option: RouteOption
+    ) -> RouteSummary:
         params = {
             "origin": _lng_lat(origin),
             "destination": _lng_lat(dest),
             "departure_time": depart_local.strftime("%Y%m%d%H%M"),
+            "priority": option.priority,
+            "summary": "true",  # 경로 좌표(sections) 없이 요약만 받는다
+            **_avoid_param(option.avoid),
         }
         body = self._request_json(self.url, params)
         try:
@@ -139,13 +167,7 @@ class KakaoRouteProvider(RouteProvider):
         if result_code != 0:
             detail = self._clean(route.get("result_msg"))
             raise RouteNotFoundError(f"경로를 찾을 수 없습니다{_suffix(detail)} (result_code={result_code})", result_code)
-        try:
-            seconds = int(route["summary"]["duration"])
-        except (ValueError, KeyError, TypeError):
-            raise RouteProviderError("길찾기 응답에 소요시간이 없습니다.") from None
-        if seconds < 0:
-            raise RouteProviderError("길찾기 응답의 소요시간이 올바르지 않습니다.")
-        return seconds
+        return _parse_summary(route)
 
     def _request_json(self, url: str, params: dict) -> dict:
         """기존 인증·타임아웃·키 비노출 오류 처리를 상세 경로와 장소 검색에서도 공유한다."""
@@ -193,13 +215,23 @@ class KakaoRouteProvider(RouteProvider):
             raise RouteProviderError("카카오 응답 형식이 올바르지 않습니다.")
         return body
 
-    def get_detailed_route(self, origin: Coordinate, dest: Coordinate, depart_at: datetime, priority: str) -> dict:
-        if priority not in ("RECOMMEND", "TIME", "DISTANCE"):
+    def get_detailed_route(
+        self,
+        origin: Coordinate,
+        dest: Coordinate,
+        depart_at: datetime,
+        priority: str,
+        avoid: tuple[str, ...] = (),
+    ) -> dict:
+        if priority not in ROUTE_PRIORITIES:
             raise ValueError("지원하지 않는 경로 우선순위")
+        if any(value not in ROUTE_AVOIDS for value in avoid):
+            raise ValueError("지원하지 않는 회피 옵션")
         body = self._request_json(self.url, {
             "origin": _lng_lat(origin), "destination": _lng_lat(dest),
             "departure_time": depart_at.astimezone(KST).strftime("%Y%m%d%H%M"),
             "priority": priority, "summary": "false", "alternatives": "false", "road_details": "true",
+            **_avoid_param(avoid),
         })
         try:
             route = body["routes"][0]
@@ -246,6 +278,33 @@ class KakaoRouteProvider(RouteProvider):
 
 def _lng_lat(coordinate: Coordinate) -> str:
     return f"{coordinate.lng},{coordinate.lat}"
+
+
+def _avoid_param(avoid: tuple[str, ...]) -> dict[str, str]:
+    """회피 옵션이 없으면 파라미터를 보내지 않는다 (카카오 기본값)."""
+    return {"avoid": "|".join(avoid)} if avoid else {}
+
+
+def _parse_summary(route: dict) -> RouteSummary:
+    """routes[0].summary를 읽는다. 통행료(fare.toll)는 없을 수 있다."""
+    try:
+        summary = route["summary"]
+        duration = int(summary["duration"])
+    except (ValueError, KeyError, TypeError):
+        raise RouteProviderError("길찾기 응답에 소요시간이 없습니다.") from None
+    if duration < 0:
+        raise RouteProviderError("길찾기 응답의 소요시간이 올바르지 않습니다.")
+    try:
+        distance = int(summary["distance"])
+    except (ValueError, KeyError, TypeError):
+        raise RouteProviderError("길찾기 응답에 거리가 없습니다.") from None
+    if distance < 0:
+        raise RouteProviderError("길찾기 응답의 거리가 올바르지 않습니다.")
+    fare = summary.get("fare")
+    toll = fare.get("toll") if isinstance(fare, dict) else None
+    if toll is not None and (isinstance(toll, bool) or not isinstance(toll, int | float) or not math.isfinite(toll) or toll < 0):
+        raise RouteProviderError("길찾기 응답의 통행료가 올바르지 않습니다.")
+    return RouteSummary(duration_sec=duration, distance_m=distance, toll=None if toll is None else int(toll))
 
 
 def _suffix(detail: str) -> str:

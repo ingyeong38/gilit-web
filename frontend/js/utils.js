@@ -1,6 +1,9 @@
 import { KAKAO_JS_KEY } from "/js/config.js";
 
-export const ROUTE_COLORS = ["#2563EB", "#16A36A", "#F59E0B"];
+// 경로 카드 순서대로 쓴다. 카드는 최대 4개(추천·최단시간·최단거리·무료도로)이고, 태그 색(.tag-0~3)과 맞춘다.
+export const ROUTE_COLORS = ["#2563EB", "#16A36A", "#F59E0B", "#7C3AED"];
+// GET /api/routes 카드의 options 값 (docs/api-spec.md)
+const ROUTE_OPTION_LABELS = { recommend: "추천", time: "최단시간", distance: "최단거리", free: "무료도로" };
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -110,6 +113,12 @@ export function formatWon(amount) {
 
 export function formatBuffer(minutes) {
   return minutes > 0 ? `${minutes}분` : "없음";
+}
+
+// 같은 길로 합쳐진 카드는 옵션 이름을 모두 보여 준다 ("추천 · 최단시간"). options가 없는 목업은 label 그대로.
+export function formatRouteLabel(route) {
+  const labels = (route.options ?? []).map((key) => ROUTE_OPTION_LABELS[key]).filter(Boolean);
+  return labels.length > 1 ? labels.join(" · ") : route.label;
 }
 
 export function buildResultUrl({ from, to, date, time, buffer, ...coordinates }) {

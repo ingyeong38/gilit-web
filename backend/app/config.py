@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.departure import KakaoRouteProvider, MockRouteProvider, RouteProvider, SolverConfig
+from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
 
 ROUTE_PROVIDERS = ("mock", "kakao")
 # 로컬 개발용 프론트 주소 (VS Code Live Server 기본 포트)
@@ -33,6 +33,8 @@ class Settings:
     departure_search_window_min: int = 360
     route_cache_ttl_sec: int = 600  # 카카오 소요시간 캐시 유지 시간. 0이면 캐시하지 않는다
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
+    route_compare_options: tuple[str, ...] = tuple(ROUTE_OPTIONS)  # 경로 비교에 쓸 옵션과 카드 순서
+    route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -47,6 +49,8 @@ class Settings:
             departure_search_window_min=_int_env(env, "DEPARTURE_SEARCH_WINDOW_MIN", cls.departure_search_window_min),
             route_cache_ttl_sec=_int_env(env, "ROUTE_CACHE_TTL_SEC", cls.route_cache_ttl_sec),
             cors_origins=_cors_origins_env(env),
+            route_compare_options=_route_compare_options_env(env),
+            route_compare_max_calls=_int_env(env, "ROUTE_COMPARE_MAX_CALLS", cls.route_compare_max_calls),
         )
 
     def solver_config(self) -> SolverConfig:
@@ -54,6 +58,17 @@ class Settings:
             max_calls=self.departure_max_calls,
             search_window=timedelta(minutes=self.departure_search_window_min),
         )
+
+
+    def compare_solver_config(self) -> SolverConfig:
+        """경로 비교의 옵션별 역산 설정. 탐색 구간은 출발시각 역산과 같고 조회 상한만 다르다."""
+        return SolverConfig(
+            max_calls=self.route_compare_max_calls,
+            search_window=timedelta(minutes=self.departure_search_window_min),
+        )
+
+    def route_options(self) -> tuple[RouteOption, ...]:
+        return tuple(ROUTE_OPTIONS[key] for key in self.route_compare_options)
 
 
 def create_route_provider(settings: Settings) -> RouteProvider:
@@ -83,3 +98,16 @@ def _cors_origins_env(env: Mapping[str, str]) -> tuple[str, ...]:
     if "*" in origins:
         raise ValueError("CORS_ORIGINS에는 *를 쓸 수 없습니다. 허용할 출처를 쉼표로 나열하세요.")
     return origins
+
+
+def _route_compare_options_env(env: Mapping[str, str]) -> tuple[str, ...]:
+    """쉼표로 구분한 경로 옵션 키. 적은 순서가 카드 순서다. 비어 있으면 4개 모두."""
+    keys = tuple(key.strip().lower() for key in env.get("ROUTE_COMPARE_OPTIONS", "").split(",") if key.strip())
+    if not keys:
+        return tuple(ROUTE_OPTIONS)
+    unknown = [key for key in keys if key not in ROUTE_OPTIONS]
+    if unknown:
+        raise ValueError(f"ROUTE_COMPARE_OPTIONS는 {', '.join(ROUTE_OPTIONS)} 중에서 고릅니다: {', '.join(unknown)}")
+    if len(set(keys)) != len(keys):
+        raise ValueError("ROUTE_COMPARE_OPTIONS에 같은 옵션이 두 번 있습니다.")
+    return keys

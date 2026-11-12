@@ -9,7 +9,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/places?q=` | 장소 검색 (카카오 모드 구현) | 불필요 | `searchPlaces` | `places.json` |
 | POST | `/api/departure` | 권장 출발시각 계산 (**구현됨**) | 불필요 | 없음 | - |
-| GET | `/api/routes?from=&to=&arrive=&buffer=` | 상세 도로 경로·권장 출발시각 (구현) | 불필요 | `getRoutes` | `routes.json` |
+| GET | `/api/routes?from=&to=&arrive=&buffer=` | 경로 비교: 옵션별 권장 출발시각·소요시간·거리·통행료 (**구현됨**) | 불필요 | `getRoutes` | `routes.json` |
 | GET | `/api/routes/graph?from=&to=&arrive=` | 출발시각별 소요시간 | 불필요 | `getRouteGraph` | `routeGraph.json` |
 | POST | `/api/auth/signup` | 이메일 회원가입 | 불필요 | `signup` | localStorage |
 | POST | `/api/auth/login` | 이메일 로그인 | 불필요 | `loginWithEmail` | localStorage |
@@ -107,7 +107,7 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 
 로그인: 불필요. 구현: `backend/app/api/departure.py`, 엔진: `backend/app/departure/`
 
-장소 검색 결과의 좌표로 권장 출발시각 하나를 계산한다. 목표 도착시각(`arrive_at - buffer_min`)까지 도착하는 가장 늦은 출발시각을 분 단위로 찾는다. 경로 목록·통행료·경로선은 돌려주지 않는다 (그건 아래 `GET /api/routes`).
+장소 검색 결과의 좌표로 권장 출발시각 하나를 계산한다. 목표 도착시각(`arrive_at - buffer_min`)까지 도착하는 가장 늦은 출발시각을 분 단위로 찾는다. 경로 목록·통행료·경로선은 돌려주지 않는다 (그건 아래 `GET /api/routes`). 추천 경로 기준이며, `GET /api/routes`의 `recommend` 카드와 같은 카카오 조회 캐시를 쓴다.
 
 **[해민과 합의 필요]** 이 API는 요청·응답 필드를 snake_case로 쓴다. 다른 API와 프론트는 camelCase(`departTime`)다. 아래 "해민과 정할 것" 참고.
 
@@ -187,46 +187,105 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 
 응답: `200` `{ "status": "ok" }`
 
-### GET /api/routes?from=&to=&arrive=&buffer=
+### GET /api/routes (구현됨, 경로 비교 F5)
 
-실제 경로 비교 목록이다. 서버 `ROUTE_PROVIDER=kakao`와 프론트 `USE_MOCK_ROUTES=false`를 사용한다. 기존 출발시각 계산 엔진을 재사용한다.
+로그인: 불필요. 구현: `backend/app/api/routes.py`(API), `backend/app/routing.py`의 `compare_routes`(비교 서비스), 엔진: `backend/app/departure/`
 
-- `fromLat`, `fromLng`, `toLat`, `toLng`를 선택적으로 추가할 수 있다. 위도·경도를 쌍으로 검사하고 선택 좌표를 우선 사용한다. 좌표가 없는 기존 링크는 이름·주소 검색으로 장소가 하나로 확정될 때 조회한다.
-- 추천(RECOMMEND), 최단시간(TIME), 최단거리(DISTANCE)를 각각 계산하고 동일 좌표 경로는 중복 제거한다. 1~3개 카드가 반환될 수 있다.
-- 카카오 미래 길찾기에 `summary=false`, `road_details=true`, `alternatives=false`로 요청한다. `sections[].roads[].vertexes`의 경도·위도 쌍을 순서대로 `{lat, lng}`로 변환하고 연속 중복만 제거한다. 상세 좌표가 잘못되면 오류로 처리한다.
-- 각 카드의 `path`, `durationMin`, `distanceKm`, `toll`, `arriveTime`은 최종 계산에 사용한 동일 상세 응답에 대응한다. 다른 대안의 좌표와 summary를 혼합하지 않는다.
-- `dataSource=kakao`, `bufferApplied`, `converged`를 추가한다. 미제공 `fuel` 및 `toll`은 `null`이며 UI는 ‘미제공’으로 표시한다. `aiSummary`는 UI 호환용 정적 안내로 실제 모드에서 ‘카카오 경로 안내’로 표시한다.
-- 캐시가 없을 때 요청당 최대 `3 × DEPARTURE_MAX_CALLS`(기본 24회)의 길찾기 조회와 필요시 장소 검색이 발생한다. 성공한 전체 결과를 `ROUTE_CACHE_TTL_SEC`(기본 600초) 동안 프로세스 메모리에 최대 64건 저장한다. 출발시각이 지난 결과·만료·실패는 재사용하지 않는다. TTL=0이면 저장하지 않는다.
-- 캐시 키는 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간이다. 응답 헤더 `X-Gilit-Route-Cache: HIT|MISS`로 적용 여부를 확인한다. 캐시는 서버 재시작 시 사라지고 다중 프로세스 간 공유하지 않으며 동시 첫 요청은 중복 조회할 수 있다.
-- 실제 조회 실패 시 오류를 반환하고 예시 경로로 대체하지 않는다. 목업은 별도로 유지한다. 인증·즐겨찾기 등은 경로 전용 모드 플래그에 영향을 받지 않는다.
+경로 옵션마다 출발시각 역산 엔진을 돌려, 옵션별 권장 출발시각·예상 도착시각·소요시간·거리·통행료·경로선을 카드 배열로 돌려준다. 필드는 camelCase다 (프론트 `getRoutes`, `js/mock/routes.json`).
 
-요청: `GET /api/routes?from=김해시청&to=동의대학교&arrive=2026-11-02T09:00:00%2B09:00&buffer=10`
+요청:
 
-`departTime`은 권장 출발시각이다. 실제 모드의 `arriveTime`은 최종 상세 응답의 소요시간을 더한 값이고 목업에서는 `arrive - buffer`다. 아래는 기존 목업 형식 예시이며 실제 `path`에는 도로의 상세 좌표가 포함된다. 추천 경로를 첫 번째로 돌려준다.
+```
+GET /api/routes?from=김해시청&to=동의대학교&arrive=2026-11-13T09:00:00%2B09:00&buffer=10
+               &fromLat=35.2285&fromLng=128.8894&toLat=35.1441&toLng=129.0336
+```
+
+| 파라미터 | 필수 | 규칙 | 오류 `message` (400) |
+| --- | --- | --- | --- |
+| `from`, `to` | 예 | 앞뒤 공백 제거 후 1~100자, 서로 달라야 한다 | 출발지가 필요합니다. / 출발지는 1~100자로 입력해 주세요. / 출발지와 다른 목적지를 입력해 주세요. |
+| `arrive` | 예 | ISO 8601. 시간대가 없으면 한국 시간. `+`는 `%2B`로 보낸다. 지금보다 미래 | 도착 희망 시각은 ISO 8601 형식이어야 합니다 (예: 2026-11-06T09:00:00+09:00). / 도착 희망 시각이 이미 지났습니다. |
+| `buffer` | 아니오 (기본 0) | `0`, `5`, `10`, `15` | 여유시간은 0, 5, 10, 15분 중 하나여야 합니다. |
+| `fromLat`, `fromLng` | 아니오 | 함께 보낸다. 위도 -90~90, 경도 -180~180, NaN 불가 | 출발지 위도와 경도를 함께 보내 주세요. / 출발지 위도는 -90~90 사이의 숫자여야 합니다. |
+| `toLat`, `toLng` | 아니오 | 위와 같다 | 목적지 위도와 경도를 함께 보내 주세요. / 목적지 경도는 -180~180 사이의 숫자여야 합니다. |
+
+좌표가 있으면 그 좌표를 쓴다. 좌표가 없으면(좌표가 생기기 전의 공유 링크) 서버가 장소 검색으로 이름을 하나의 장소로 확정한다. 확정하지 못하면 422다.
+
+응답: `200` 카드 배열. 카드 순서는 서버 설정 `ROUTE_COMPARE_OPTIONS` 순서(기본 추천, 최단시간, 최단거리, 무료도로)이고 **1~4개**다.
 
 ```json
 [
   {
-    "id": "route-1",
+    "id": "recommend",
+    "options": ["recommend", "time"],
     "label": "추천",
-    "name": "남해고속도로 경유",
-    "departTime": "2026-11-02T08:12:00+09:00",
-    "arriveTime": "2026-11-02T08:50:00+09:00",
-    "durationMin": 38,
-    "distanceKm": 31.4,
-    "toll": 1600,
-    "fuel": 4200,
+    "name": "남해고속도로(순천-부산) 경유",
+    "departTime": "2026-11-13T08:19:00+09:00",
+    "arriveTime": "2026-11-13T08:49:10+09:00",
+    "durationMin": 31,
+    "distanceKm": 21.97,
+    "toll": 1300,
+    "fuel": null,
+    "bufferApplied": true,
+    "converged": true,
+    "dataSource": "kakao",
     "path": [
       { "lat": 35.2285, "lng": 128.8894 },
       { "lat": 35.1441, "lng": 129.0336 }
     ],
-    "aiSummary": {
-      "title": "남해고속도로 경유가 가장 안정적이에요",
-      "text": "세 경로 중 예상 소요시간이 가장 짧아 가장 늦게 출발해도 제시간에 도착할 수 있어요."
-    }
+    "aiSummary": { "title": "추천 경로", "text": "소요시간·거리·통행료·경로선은 같은 상세 길찾기 응답 기준입니다." }
   }
 ]
 ```
+
+위 값은 2026-11-12에 실제 카카오로 조회한 첫 카드다. `path`는 실제로 수백 개 좌표이고 여기서는 줄였다.
+
+| 필드 | 설명 |
+| --- | --- |
+| `id` | 카드를 만든 경로 옵션: `recommend`(추천), `time`(최단시간), `distance`(최단거리), `free`(무료도로) |
+| `options` | 이 카드에 합쳐진 옵션. 같은 길로 확인된 옵션은 앞 카드에 합친다 (예: 추천과 최단시간이 같은 길이면 `["recommend", "time"]`, 이때 `time` 카드는 따로 없다) |
+| `label` | `id`의 이름: 추천, 최단시간, 최단거리, 무료도로 |
+| `name` | 경로에서 가장 긴 도로 이름 + " 경유". 도로 이름이 없으면 `label` |
+| `departTime` | 권장 출발시각 (한국 시간, 분 단위) |
+| `arriveTime` | 예상 도착시각 = `departTime` + 상세 경로 소요시간 (초 단위) |
+| `durationMin` | 예상 소요시간(분, 올림) |
+| `distanceKm` | 거리(km) |
+| `toll` | 통행료(원). 카카오가 주지 않으면 `null` (화면은 "미제공") |
+| `fuel` | 예상 유류비. 아직 제공하지 않아 항상 `null` |
+| `bufferApplied` | 여유시간을 반영했는지. 요청이 0분이거나 지금 출발해도 여유를 둘 수 없으면 `false` (여유 없이 계산한 결과) |
+| `converged` | `false`면 조회 한도에 걸려 확인된 시각 중 가장 늦은 것을 돌려준 것. 실제 답보다 이르거나 같아서 늦지 않는다 |
+| `dataSource` | `kakao` 또는 `mock` (서버 `ROUTE_PROVIDER`) |
+| `path` | 지도에 그릴 경로 좌표 `[{lat, lng}]`. 두 개 이상 |
+| `aiSummary` | 화면 호환용 고정 안내 `{title, text}`. AI 요약은 아직 없다 |
+
+`durationMin`, `distanceKm`, `toll`, `path`, `name`, `arriveTime`은 모두 **같은 상세 경로 응답 하나**에서 나온다. 다른 옵션이나 다른 출발시각의 값을 섞지 않는다.
+
+오류:
+
+| 코드 | 언제 | `message` |
+| --- | --- | --- |
+| `400` | 위 표의 입력 오류, 지난 도착 희망 시각 | 표 참고 |
+| `422` | 이름만 온 장소를 하나로 확정하지 못함 (mock 모드는 장소 검색이 없어 항상 이 경우) | 장소를 하나로 확인할 수 없어요. 정확한 장소명이나 주소로 다시 검색해 주세요. |
+| `422` | 모든 옵션이 실패 (첫 옵션의 오류를 돌려준다) | 지금 출발해도 도착 희망 시각까지 도착할 수 없습니다. / 해당 조건으로 자동차 경로를 찾을 수 없습니다. 등 |
+| `502` | 카카오 인증 실패, 요청 거부, 연결 실패, 응답 형식 이상 | 길찾기 정보를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요. |
+| `503` | 카카오 호출 한도 초과 | 길찾기 API 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요. |
+| `504` | 카카오 응답 시간 초과 | 길찾기 서버 응답이 늦습니다. 잠시 후 다시 시도해 주세요. |
+
+일부 옵션만 실패하면(경로 없음, 제시간 도착 불가, 무료도로인데 통행료가 있음) **그 카드만 빼고 200**을 돌려준다. 빠진 옵션과 이유는 응답에 넣지 않고 서버 로그(`app.api` 로거)에만 남긴다. 통행료 없는 길이 없는 경우는 INFO, 그 밖은 WARNING이다. 공급자 오류(5xx)는 남은 옵션을 부르지 않고 바로 돌려준다. 실제 조회가 실패해도 예시 경로로 대체하지 않는다.
+
+서버 동작:
+
+- 옵션마다 역산 엔진이 요약 조회(`summary=true`, 경로 좌표 없음)로 출발시각을 찾고(옵션당 최대 `ROUTE_COMPARE_MAX_CALLS`, 기본 6회), 확정된 출발시각에 상세 경로(`road_details=true`)를 한 번 받아 카드를 만든다.
+- 중복: 엔진의 첫 조회(같은 출발시각의 소요시간·거리·통행료)가 이미 만든 카드와 같으면 탐색을 멈추고 상세 좌표 1회로 같은 길인지 확인한다. 같으면 앞 카드의 `options`에 합친다. 첫 조회는 달라도 상세 좌표가 같으면 역시 합친다.
+- 무료도로(`free`)는 카카오 `avoid=toll`이다. 결과에 통행료가 있으면 카드에서 뺀다.
+- 상세 경로의 소요시간이 요약과 다르면 상세 값 기준으로 출발시각을 앞당긴다 (늦게 안내하지 않는다). 더 짧으면 그대로 둔다.
+- 요청당 카카오 호출: 옵션마다 요약 최대 6회 + 상세 1~2회, 최악 32회. 2026-11-12 실측(김해시청 → 동의대학교, 다음 날 09:00, 여유 10분)은 카드 3개(추천·최단시간이 합쳐짐), **18회**였다. 일일 쿼터 5,000건이면 하루 약 270회 비교다.
+- 캐시: 카카오 요약 조회는 Provider 캐시(`ROUTE_CACHE_TTL_SEC`, 기본 600초, 옵션별)를 쓴다. `/api/departure`와 추천 옵션은 같은 캐시를 쓴다. 성공한 전체 응답은 같은 시간 동안 프로세스 메모리에 최대 64건 저장한다. 키는 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간이고, 응답 헤더 `X-Gilit-Route-Cache: HIT|MISS`로 확인한다. 출발시각이 지난 결과·실패는 재사용하지 않는다. 캐시는 서버 재시작 시 사라지고 프로세스 간 공유하지 않는다. 응답에는 `Cache-Control: no-store`가 붙는다.
+
+mock 모드 (`ROUTE_PROVIDER=mock`):
+
+- 카카오 없이 동작한다. `dataSource`는 `mock`이고, 옵션마다 거리·속도·혼잡·통행료를 다르게 둔 가짜 데이터(`MockRouteProvider`)로 카드 4개를 만든다. 경로선은 출발지와 목적지를 잇는 가짜 곡선이고, `name`은 "가상 고속도로 경유"처럼 나온다. 실제 교통 정보와 무관하다.
+- mock 모드에는 장소 검색이 없으므로 **좌표 파라미터가 필요하다**. 이름만 오면 422다. `GET /api/places`는 mock 모드에서 502다.
+- 프론트 `USE_MOCK_ROUTES=true`일 때는 서버를 부르지 않고 `js/mock/routes.json`을 쓴다. 이 둘은 다른 mock이다.
 
 ### GET /api/routes/graph?from=&to=&arrive=
 
@@ -483,10 +542,19 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 ### [해민과 합의 필요] 출발시각 API (`POST /api/departure`)
 
 1. **필드 표기**: 이 API만 snake_case(`recommended_depart_at`)이고 나머지 명세와 프론트는 camelCase(`departTime`)다. 둘 중 하나로 통일한다. camelCase로 맞추면 서버에서 별칭(alias)만 바꾸면 된다.
-2. **`/api/routes`와의 관계**: 결과 화면은 지금 `getRoutes`(경로 목록) 응답의 `departTime`을 보여 준다. (가) 결과 화면이 `POST /api/departure`를 따로 부를지, (나) `GET /api/routes`가 경로마다 이 엔진으로 `departTime`을 계산해 넣을지 정한다.
+2. **`/api/routes`와의 관계**: (나)로 구현했다. `GET /api/routes`가 경로 옵션마다 이 엔진으로 `departTime`을 계산한다. `POST /api/departure`는 단일 계산용으로 남긴다.
 3. **좌표 전달**: 이 API는 좌표가 필수다. 지금 검색 조건 URL 쿼리(`from`, `to`)에는 장소 이름만 있어서, 결과 화면이 좌표를 알려면 쿼리에 좌표를 더하거나 장소 id로 다시 조회해야 한다.
 4. **개발 환경 주소**: 프론트 `config.js`의 `BASE_URL`은 `/api`(같은 출처)다. Live Server(5500)와 uvicorn(8000)을 따로 띄우면 `http://127.0.0.1:8000/api`로 바꿔야 한다. 배포 때는 같은 출처로 두면 CORS가 필요 없다.
 5. **오류 코드**: 입력 오류 400, 계산 불가 422, 외부 API 오류 502/503/504. 프론트는 4xx의 `message`를 그대로 보여 주고 5xx는 일반 문장으로 바꾼다 (지금 `api.js` 동작과 같다).
+
+### [해민과 합의 필요] 경로 비교 (`GET /api/routes`)
+
+1. **`js/mock/routes.json` 갱신**: `id`가 `route-1` 형식에서 `recommend` 등 옵션 키로 바뀌고 `options`, `bufferApplied`, `converged`가 생겼다. 목업을 바꾸면 `js/mock/routeGraph.json`의 `routeId`도 같이 바꿔야 그래프가 계속 짝지어진다.
+2. **합쳐진 카드 표시**: `options`가 2개 이상이면(예: 추천 = 최단시간) 태그를 "추천 · 최단시간"처럼 보여 줄지.
+3. **`bufferApplied=false` 안내**: 지금 카드는 요청한 여유시간을 항상 "여유 10분"으로 표시한다. 반영하지 못했을 때 "여유시간 미반영"을 보여 줄지.
+4. **카드 4개**: 태그 색(`tag-3`)과 지도 색(`ROUTE_COLORS`)이 3개까지만 있다. 4번째 카드의 색을 정한다.
+5. **색 기준**: 지금 색은 카드 순서(index)에 붙는다. 옵션(`id`)마다 색을 고정할지.
+6. **빠진 옵션 안내**: 빠진 옵션과 이유는 서버 로그에만 있다. 화면에 "무료도로 경로 없음" 같은 안내가 필요하면 응답 형식을 다시 정한다.
 
 ### 그 밖의 항목
 

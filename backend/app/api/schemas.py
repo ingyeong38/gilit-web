@@ -3,9 +3,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
-from app.departure import KST, TravelMode
+from app.departure import KST, Coordinate, TravelMode
 
 BUFFER_CHOICES = (0, 5, 10, 15)  # 프론트 검색 화면의 여유시간 버튼과 같다
 
@@ -110,3 +110,88 @@ class DepartureResponse(BaseModel):
     )
     api_calls: int = Field(description="이번 계산의 소요시간 조회 횟수 (캐시 적중 포함)")
     data_source: Literal["mock", "kakao"] = Field(description="소요시간 데이터 출처 (ROUTE_PROVIDER)")
+
+
+# --- GET /api/routes (경로 비교) ---
+
+
+class RouteQuery(BaseModel):
+    """GET /api/routes 쿼리. 필드 이름은 프론트 URL 쿼리와 같은 camelCase다."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: str = Field(alias="from", min_length=1, max_length=100, description="출발지 이름")
+    to: str = Field(min_length=1, max_length=100, description="목적지 이름")
+    arrive: datetime = Field(description="도착 희망 시각 (ISO 8601). 시간대가 없으면 한국 시간. `+`는 `%2B`로 보낸다")
+    buffer: int = Field(default=0, description="여유시간(분). 0, 5, 10, 15 중 하나", json_schema_extra={"enum": list(BUFFER_CHOICES)})
+    fromLat: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False, description="출발지 위도. fromLng와 함께 보낸다")
+    fromLng: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False, description="출발지 경도")
+    toLat: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False, description="목적지 위도. toLng와 함께 보낸다")
+    toLng: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False, description="목적지 경도")
+
+    @field_validator("from_", "to")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("빈 이름")
+        return value
+
+    @field_validator("arrive")
+    @classmethod
+    def assume_kst(cls, value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=KST)
+
+    @field_validator("buffer")
+    @classmethod
+    def check_buffer(cls, value: int) -> int:
+        if value not in BUFFER_CHOICES:
+            raise ValueError("허용되지 않은 여유시간")
+        return value
+
+    @model_validator(mode="after")
+    def check_places(self) -> "RouteQuery":
+        # 여기서 던지는 문장은 그대로 400 message가 된다 (errors.validation_message).
+        if self.from_ == self.to:
+            raise ValueError("출발지와 다른 목적지를 입력해 주세요.")
+        if (self.fromLat is None) != (self.fromLng is None):
+            raise ValueError("출발지 위도와 경도를 함께 보내 주세요.")
+        if (self.toLat is None) != (self.toLng is None):
+            raise ValueError("목적지 위도와 경도를 함께 보내 주세요.")
+        return self
+
+    def origin(self) -> Coordinate | None:
+        return None if self.fromLat is None else Coordinate(self.fromLat, self.fromLng)
+
+    def destination(self) -> Coordinate | None:
+        return None if self.toLat is None else Coordinate(self.toLat, self.toLng)
+
+
+class LatLng(BaseModel):
+    lat: float
+    lng: float
+
+
+class AiSummary(BaseModel):
+    title: str
+    text: str
+
+
+class RouteCardResponse(BaseModel):
+    """경로 비교 카드. 필드는 프론트(js/mock/routes.json)와 같은 camelCase다."""
+
+    id: str = Field(description="카드를 만든 경로 옵션: recommend, time, distance, free")
+    options: list[str] = Field(description="이 카드에 합쳐진 옵션. 같은 길이면 [\"recommend\", \"time\"]")
+    label: str = Field(description="옵션 이름: 추천, 최단시간, 최단거리, 무료도로")
+    name: str = Field(description="가장 긴 도로 이름 + ' 경유'. 도로 이름이 없으면 label")
+    departTime: datetime = Field(description="권장 출발시각 (한국 시간, 분 단위)")
+    arriveTime: datetime = Field(description="예상 도착시각 (권장 출발시각 + 상세 경로 소요시간)")
+    durationMin: int = Field(description="예상 소요시간(분, 올림)")
+    distanceKm: float = Field(description="거리(km)")
+    toll: int | None = Field(description="통행료(원). 카카오가 주지 않으면 null")
+    fuel: int | None = Field(description="예상 유류비(원). 아직 제공하지 않아 null")
+    bufferApplied: bool = Field(description="여유시간을 반영했는지")
+    converged: bool = Field(description="false면 조회 한도에 걸려 확인된 가장 늦은(안전한) 시각")
+    dataSource: Literal["mock", "kakao"] = Field(description="데이터 출처 (ROUTE_PROVIDER)")
+    path: list[LatLng] = Field(description="지도에 그릴 경로 좌표. 소요시간·거리·통행료와 같은 상세 응답")
+    aiSummary: AiSummary = Field(description="화면 호환용 고정 안내 문구")
