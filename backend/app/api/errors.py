@@ -55,8 +55,20 @@ FIELD_LABELS = {  # (이름, 조사)
     "name": ("장소 이름", "이"),
     "lat": ("위도", "가"),
     "lng": ("경도", "가"),
+    # GET /api/routes 쿼리
+    "from": ("출발지", "가"),
+    "to": ("목적지", "가"),
+    "arrive": ("도착 희망 시각", "이"),
 }
 INVALID_MESSAGES = {
+    "from": "출발지는 1~100자로 입력해 주세요.",
+    "to": "목적지는 1~100자로 입력해 주세요.",
+    "arrive": "도착 희망 시각은 ISO 8601 형식이어야 합니다 (예: 2026-11-06T09:00:00+09:00).",
+    "buffer": "여유시간은 0, 5, 10, 15분 중 하나여야 합니다.",
+    "fromLat": "출발지 위도는 -90~90 사이의 숫자여야 합니다.",
+    "fromLng": "출발지 경도는 -180~180 사이의 숫자여야 합니다.",
+    "toLat": "목적지 위도는 -90~90 사이의 숫자여야 합니다.",
+    "toLng": "목적지 경도는 -180~180 사이의 숫자여야 합니다.",
     "origin": "출발지는 name, lat, lng가 있는 객체여야 합니다.",
     "destination": "목적지는 name, lat, lng가 있는 객체여야 합니다.",
     "name": "장소 이름은 1~100자로 입력해 주세요.",
@@ -75,8 +87,12 @@ def validation_message(errors: list[dict]) -> str:
     if not errors:
         return INVALID_BODY_MESSAGE
     error = errors[0]
-    loc = [part for part in error.get("loc", ()) if isinstance(part, str) and part != "body"]
+    loc = [part for part in error.get("loc", ()) if isinstance(part, str) and part not in ("body", "query")]
     if not loc:
+        # 여러 필드를 함께 보는 검사(model_validator)는 우리가 쓴 한국어 문장을 그대로 쓴다.
+        cause = (error.get("ctx") or {}).get("error")
+        if error.get("type") == "value_error" and cause is not None:
+            return str(cause)
         return INVALID_BODY_MESSAGE
     field = loc[-1]
     prefix = PLACE_PREFIX.get(loc[0], "") if len(loc) > 1 else ""

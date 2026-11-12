@@ -59,43 +59,6 @@ def parse_detailed_route(route: dict) -> dict:
     return {"path": path, "durationSec": duration, "distanceKm": round(distance / 1000, 3), "toll": toll}
 
 
-class DetailedRouteProvider(RouteProvider):
-    """요청 안에서 최종 계산에 쓰인 상세 응답을 보관한다. 다른 조회 결과를 재결합하지 않는다."""
-    def __init__(self, provider, priority):
-        self.provider = provider
-        self.priority = priority
-        self.snapshots = {}
-
-    def get_duration(self, origin, dest, depart_at, travel_mode=TravelMode.CAR):
-        key = (origin, dest, depart_at)
-        if key not in self.snapshots:
-            self.snapshots[key] = parse_detailed_route(self.provider.get_detailed_route(origin, dest, depart_at, self.priority))
-        return math.ceil(self.snapshots[key]["durationSec"])
-
-
-def find_routes(provider, solver_config, clock, origin, destination, arrive, buffer):
-    routes, seen = [], set()
-    for priority, label in [("RECOMMEND", "추천"), ("TIME", "최단시간"), ("DISTANCE", "최단거리")]:
-        detailed = DetailedRouteProvider(provider, priority)
-        result = DepartureSolver(detailed, solver_config, clock=clock).solve(origin, destination, arrive, buffer)
-        snapshot = detailed.snapshots[(origin, destination, result.depart_at)]
-        signature = tuple((p["lat"], p["lng"]) for p in snapshot["path"])
-        if signature in seen:
-            continue
-        seen.add(signature)
-        routes.append({
-            "id": f"kakao-{priority.lower()}", "label": label, "name": f"카카오 {label} 경로",
-            "departTime": result.depart_at.isoformat(),
-            "arriveTime": (result.depart_at + timedelta(seconds=snapshot["durationSec"])).isoformat(),
-            "durationMin": math.ceil(snapshot["durationSec"] / 60),
-            "distanceKm": snapshot["distanceKm"], "toll": snapshot["toll"], "fuel": None,
-            "path": snapshot["path"], "dataSource": "kakao", "bufferApplied": result.buffer_applied,
-            "converged": result.converged,
-            "aiSummary": {"title": f"카카오 {label} 경로", "text": "거리·소요시간·경로선은 같은 상세 길찾기 응답 기준입니다."},
-        })
-    return routes
-
-
 class RouteResultCache:
     """검증을 마친 전체 응답만 저장한다. 실패는 저장하지 않고 TTL/개수로 제한한다."""
     def __init__(self, ttl=600, max_entries=64, monotonic=None):
@@ -133,7 +96,7 @@ class RouteResultCache:
 
 # --- 경로 비교 서비스 (F5) ---------------------------------------------------------------
 # 옵션(추천·최단시간·최단거리·무료도로)마다 출발시각 역산 엔진을 돌리고, 확정된 출발시각에 상세 경로를 한 번 받아
-# 카드를 만든다. find_routes는 GET /api/routes가 아직 쓰고 있어 남겨 둔다 (3단계에서 compare_routes로 바꾼다).
+# 카드를 만든다. GET /api/routes(api/routes.py)가 쓴다.
 
 NO_FREE_ROUTE_MESSAGE = "통행료 없이 갈 수 있는 경로를 찾지 못했습니다."
 NOT_IN_TIME_MESSAGE = "지금 출발해도 도착 희망 시각까지 도착할 수 없습니다."
@@ -260,8 +223,7 @@ def compare_routes(
                                          arrive_at, buffer_min, data_source, result)
         except DepartureError as error:
             failures.append(error)
-            result.excluded[option.key] = str(error)
-            logger.info("경로 옵션 제외: %s: %s", option.key, error)
+            result.excluded[option.key] = str(error)  # 로그는 호출한 쪽(api/routes.py)이 남긴다
             continue
         finally:
             result.lookups += len(adapter.summaries)

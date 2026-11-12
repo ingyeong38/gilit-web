@@ -56,6 +56,10 @@ class RouteProvider(ABC):
         """카카오 routes[0] 형식(summary, sections[].roads[].vertexes)의 상세 경로."""
         raise NotImplementedError(f"{type(self).__name__}는 상세 경로를 지원하지 않습니다.")
 
+    def search_places(self, query: str) -> list[dict]:
+        """장소 검색 [{id, name, address, lat, lng}]. 좌표 없이 이름만 온 경로 비교 요청에 쓴다."""
+        raise NotImplementedError(f"{type(self).__name__}는 장소 검색을 지원하지 않습니다.")
+
 
 @dataclass(frozen=True)
 class CongestionPeak:
