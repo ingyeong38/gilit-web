@@ -1,4 +1,7 @@
 const PATHS = {
+  toll: '<path d="M3 21V9h8v12M2 9l5-6 5 6M5 21v-7h4v7M11 14l10-5v4l-10 5M15 12v4M18 10v4" />',
+  fuel: '<rect x="3" y="3" width="11" height="18" rx="2"/><path d="M3 10h11M6 6h5M14 12h2a2 2 0 0 1 2 2v4a2 2 0 0 0 4 0V9l-4-4M19 6v4h3" />',
+  flag: '<path d="M4 22V3m0 1c5-4 10 4 16 0v11c-6 4-11-4-16 0M9 3v11M15 5v11M4 9c5-4 10 4 16 0" />',
   arrow: '<path d="m9 18 6-6-6-6" />',
   bars: '<path d="M4 19V9M10 19V5M16 19v-7M22 19V3" />',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" />',

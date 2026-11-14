@@ -6,7 +6,7 @@ const strip = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];/mg
 const calls = [];
 const path = [{ lat: 35.2285, lng: 128.8894 }, { lat: 35.2286, lng: 128.8895 }, { lat: 35.2287, lng: 128.8896 }];
 let status = 200;
-const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, BASE_URL: '/api', URLSearchParams,
+const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, GRAPH_API_ENABLED: false, BASE_URL: '/api', URLSearchParams,
   localStorage: { getItem: () => null },
   fetch: async (url) => {
     calls.push(url);

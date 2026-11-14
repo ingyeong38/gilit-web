@@ -1,19 +1,6 @@
-import { escapeHtml, formatShortDate, minutesBetween, timeOf } from "/js/utils.js";
-
-// SVG 좌표 기준값은 디자인 원본과 같다.
-const DURATION = {
-  gridLines: [35, 75, 115, 155, 195],
-  left: 34,
-  width: 630,
-  bottomY: 176,
-  topY: 35,
-  maxScale: 4.1,
-  viewWidth: 700,
-  viewHeight: 230,
-  svgHeight: 190,
-  yLabelWidth: 38,
-  initialHover: 3,
-};
+import { icon } from "/js/components/icon.js";
+import { durationChartModel, graphTime, durationChange, summaryPosition } from "/js/components/durationGraph.js?v=card530-20261114-6";
+import { escapeHtml, formatShortDate } from "/js/utils.js";
 
 const VISITORS = {
   gridLines: [25, 65, 105, 145, 185],
@@ -26,55 +13,118 @@ const VISITORS = {
   axisTicks: 4,
 };
 
-// range: 모든 경로에 공통으로 적용할 { min, max }. 경로를 바꿔도 세로 눈금이 유지된다.
-export function renderDurationChart(container, { points, color, recommendedTime, range }) {
-  const base = range.min - 3;
-  const scale = Math.min(DURATION.maxScale, (DURATION.bottomY - DURATION.topY) / Math.max(range.max - base, 1));
-  const xAt = (index) => DURATION.left + (index * DURATION.width) / Math.max(points.length - 1, 1);
-  const yAt = (value) => DURATION.bottomY - (value - base) * scale;
-  const firstTime = points[0].departTime;
-  const totalMinutes = minutesBetween(firstTime, points.at(-1).departTime);
-  const recommendedOffset = minutesBetween(firstTime, recommendedTime);
-  const showRecommended = recommendedOffset >= 0 && recommendedOffset <= totalMinutes;
-  const recommendedX = DURATION.left + (recommendedOffset / (totalMinutes || 1)) * DURATION.width;
-  const linePoints = points.map((point, index) => `${xAt(index)},${yAt(point.durationMin)}`).join(" ");
+const durationChartCleanups = new WeakMap();
 
-  container.innerHTML = `
-    <div class="chart-head">
-      <div><div class="list-title">출발시각별 예상 소요시간</div><p>출발 시간에 따른 교통 흐름 변화를 확인하세요.</p></div>
-      <div class="chart-legend"><i style="background: ${color}"></i>예상 소요시간 <span></span>권장 출발</div>
-    </div>
-    <div class="chart-wrap">
-      <div class="y-label">소요시간 (분)</div>
-      <svg viewBox="0 0 ${DURATION.viewWidth} ${DURATION.viewHeight}" preserveAspectRatio="none">
-        ${DURATION.gridLines.map((y) => `<line x1="34" y1="${y}" x2="664" y2="${y}" class="grid-line" />`).join("")}
-        ${showRecommended ? `<line x1="${recommendedX}" y1="24" x2="${recommendedX}" y2="195" class="recommend-line" />` : ""}
-        <polyline points="${linePoints}" class="duration-area-line" style="stroke: ${color}" />
-        ${points.map((point, index) => `<circle cx="${xAt(index)}" cy="${yAt(point.durationMin)}" r="4" class="chart-point" style="stroke: ${color}" data-index="${index}" />`).join("")}
+// 기존 SVG 차트를 재사용한다. 나머지 통계 차트와 계산을 분리한다.
+export function renderDurationChart(container, { points = [], color = "#2563EB", recommendedTime, range, routeName = "", isExample = false, message = "", discarded = 0, routeId = "", routeTag = "" } = {}) {
+  durationChartCleanups.get(container)?.();
+  const model = durationChartModel(points, recommendedTime, range);
+  const stroke = /^#[0-9a-f]{6}$/i.test(color) ? color : "#2563EB";
+  const label = value => escapeHtml(value);
+  container.hidden = false;
+  container.dataset.routeId = routeId;
+  const heading = `<div class="chart-head"><div><h2 class="list-title">출발시각별 예상 소요시간</h2><p>${label(routeName)} · ${isExample ? "테스트용 예시 데이터 · 실제 교통 예측이 아닙니다." : "예상 소요시간 · 한국 시간(KST)"}</p></div></div>`;
+  if (!model.points.length) {
+    container.innerHTML = `${heading}<p class="duration-empty" role="status">${label(message || "선택 경로의 그래프 데이터가 없습니다.")}</p>`;
+    return;
+  }
+  const recommendedLabel = graphTime(recommendedTime);
+  container.innerHTML = `${heading}
+    <p class="duration-summary">권장 출발: <b>${label(recommendedLabel)}</b>${model.recommendedX === null ? " (그래프 범위 밖 또는 시각 미제공)" : " · 점선 표시"}</p>
+    <div class="duration-plot"><div class="duration-scroll">
+      <svg class="duration-svg" viewBox="0 0 700 270" role="group" aria-label="${label(routeName)} 출발시각별 예상 소요시간. 데이터 지점에서 방향키로 이동하세요.">
+        <text x="12" y="22" class="duration-axis-title">예상 소요시간 (분)</text>
+        ${model.yTicks.map(tick => `<line x1="64" x2="656" y1="${tick.y}" y2="${tick.y}" class="grid-line"/><text x="52" y="${tick.y + 4}" text-anchor="end">${Number(tick.value.toFixed(1))}</text>`).join("")}
+        ${model.xTicks.map(tick => `<text x="${tick.x}" y="224" text-anchor="middle">${graphTime(tick.timestamp)}</text>`).join("")}
+        <text x="360" y="255" text-anchor="middle" class="duration-axis-title">출발 시각 (KST · 월/일 시:분)</text>
+        ${model.recommendedX === null ? "" : `<line x1="${model.recommendedX}" x2="${model.recommendedX}" y1="35" y2="200" class="recommend-line"/><text x="${Math.min(620, Math.max(100, model.recommendedX))}" y="33" text-anchor="middle">권장 출발</text>`}
+        <polyline points="${model.points.map(p => `${p.x},${p.y}`).join(" ")}" class="duration-area-line" style="stroke:${stroke}"/>
+        ${model.points.map((p, i) => `<g><circle cx="${p.x}" cy="${p.y}" r="4" fill="white" stroke="${stroke}" stroke-width="3"/><circle class="duration-hit" cx="${p.x}" cy="${p.y}" r="14" tabindex="${i === 0 ? 0 : -1}" role="button" aria-pressed="false" data-index="${i}" aria-label="${graphTime(p.timestamp)} 출발, 예상 ${p.durationMin}분"><title>${graphTime(p.timestamp)} 출발 · 예상 ${p.durationMin}분</title></circle></g>`).join("")}
       </svg>
-      <div class="chart-tooltip" hidden></div>
-      <div class="x-labels">${points.map((point) => `<span>${timeOf(point.departTime)}</span>`).join("")}</div>
-    </div>
-  `;
-
-  const tooltip = container.querySelector(".chart-tooltip");
-  const circles = container.querySelectorAll(".chart-point");
-
-  const setHover = (index) => {
-    circles.forEach((circle, circleIndex) => circle.setAttribute("r", circleIndex === index ? "6" : "4"));
-    tooltip.hidden = index === null;
-    if (index === null) return;
-    const point = points[index];
-    tooltip.innerHTML = `<b>${timeOf(point.departTime)} 출발</b><span>예상 ${point.durationMin}분</span>`;
-    tooltip.style.left = `calc(${DURATION.yLabelWidth}px + (100% - ${DURATION.yLabelWidth}px) * ${xAt(index) / DURATION.viewWidth})`;
-    tooltip.style.top = `${(yAt(point.durationMin) / DURATION.viewHeight) * DURATION.svgHeight - 8}px`;
+    </div><aside class="duration-popover" aria-label="선택한 출발 시각 요약" hidden></aside></div>
+    <p class="duration-readout" role="status" aria-live="polite">지점에 마우스를 올리거나 터치하세요. 키보드는 Tab으로 진입한 뒤 ← → 키로 이동하세요.</p>
+    ${model.points.length === 1 ? '<p class="duration-note">데이터가 1개여서 선 대신 지점으로 표시합니다.</p>' : ""}
+    ${discarded + model.discarded ? '<p class="duration-note">잘못되거나 중복된 데이터는 제외했습니다. 중복 시각은 마지막 유효 값을 사용합니다.</p>' : ""}
+    <details class="duration-table"><summary><span class="duration-disclosure">${icon("chevron")}</span>출발 시각별 데이터 표 보기</summary>
+      <div class="duration-table-body"><div class="duration-table-route">${routeTag ? `<span class="route-tag">${label(routeTag)}</span>` : ""}${icon("car")}<span>${label(routeName)} 예상 소요시간 (KST)</span></div>
+      <div class="duration-row-heading"><span>${icon("clock")} 출발 시각</span><span>예상 소요시간</span></div>
+      <div class="duration-rows" role="group" aria-label="출발 시각별 데이터">
+      ${model.points.map((p, i) => `<button class="duration-row" type="button" data-point-index="${i}" aria-pressed="false"><span class="duration-row-time">${icon("clock")}<span>${graphTime(p.timestamp)}</span></span><span class="duration-value">${p.durationMin}분</span><span class="duration-selected" hidden>✓ 선택됨</span></button>`).join("")}</div></div></details>`;
+  const nodes = [...container.querySelectorAll(".duration-hit")];
+  const rows = [...container.querySelectorAll(".duration-row")];
+  const badges = [...container.querySelectorAll(".duration-selected")];
+  const readout = container.querySelector(".duration-readout");
+  const popover = container.querySelector(".duration-popover");
+  const plot = container.querySelector(".duration-plot");
+  const scroll = container.querySelector(".duration-scroll");
+  let selected = null;
+  const describe = index => {
+    const p = model.points[index];
+    readout.textContent = `${graphTime(p.timestamp)} 출발 · 예상 ${p.durationMin}분${isExample ? " · 테스트용 예시" : ""}`;
   };
-
-  circles.forEach((circle, index) => {
-    circle.addEventListener("mouseenter", () => setHover(index));
-    circle.addEventListener("mouseleave", () => setHover(null));
+  const position = () => {
+    if (selected === null) return;
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      popover.style.left = ""; popover.style.top = ""; popover.style.maxHeight = "";
+      return;
+    }
+    const bounds = plot.getBoundingClientRect();
+    const point = nodes[selected].getBoundingClientRect();
+    popover.style.maxHeight = `${Math.max(120, bounds.height - 16)}px`;
+    const card = popover.getBoundingClientRect();
+    const placement = summaryPosition({ width: bounds.width, height: bounds.height, cardWidth: card.width, cardHeight: card.height,
+      x: (point.left + point.right) / 2 - bounds.left, y: (point.top + point.bottom) / 2 - bounds.top });
+    popover.style.left = `${placement.left}px`; popover.style.top = `${placement.top}px`;
+    popover.dataset.side = placement.side;
+    popover.style.setProperty("--tail-top", `${placement.tailTop}px`);
+  };
+  const select = index => {
+    selected = index;
+    nodes.forEach((node, i) => { node.classList.toggle("active", i === index); node.setAttribute("aria-pressed", String(i === index)); });
+    rows.forEach((row, i) => { row.classList.toggle("selected", i === index); row.setAttribute("aria-pressed", String(i === index)); badges[i].hidden = i !== index; });
+    popover.hidden = index === null;
+    if (index === null) return;
+    describe(index);
+    const point = model.points[index], change = durationChange(model.points, index);
+    popover.innerHTML = `<div class="duration-popover-content"><div class="duration-popover-head"><span class="duration-popover-clock">${icon("clock")}</span><b>${graphTime(point.timestamp)} 출발</b><button class="duration-popover-close" type="button" aria-label="요약 카드 닫기">${icon("close", { size: 16 })}</button></div><div class="duration-popover-value"><div><small>예상 소요시간</small><strong>${point.durationMin}분</strong></div><div class="duration-mode">${icon("car")}<span>자동차 기준</span></div></div><p class="duration-change ${change.tone}"><span class="duration-change-mark" aria-hidden="true">${change.tone === "decrease" ? "▼" : change.tone === "increase" ? "▲" : "−"}</span><span>${label(change.text)}</span></p>${isExample ? '<p class="duration-example-note">테스트용 예시 · 실제 교통 예측이 아닙니다.</p>' : ""}</div>`;
+    popover.querySelector(".duration-popover-close").addEventListener("click", () => select(null));
+    position();
+  };
+  nodes.forEach((node, index) => {
+    for (const event of ["mouseenter", "focus"]) node.addEventListener(event, () => describe(index));
+    node.addEventListener("click", () => select(selected === index ? null : index));
+    node.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); select(selected === index ? null : index); return; }
+      if (event.key === "Escape") { select(null); return; }
+      let next = index;
+      if (["ArrowRight", "ArrowDown"].includes(event.key)) next = Math.min(index + 1, nodes.length - 1);
+      else if (["ArrowLeft", "ArrowUp"].includes(event.key)) next = Math.max(index - 1, 0);
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = nodes.length - 1;
+      else return;
+      event.preventDefault();
+      nodes.forEach((target, i) => target.setAttribute("tabindex", i === next ? "0" : "-1"));
+      nodes[next].focus();
+      if (selected !== null) select(next);
+    });
   });
-  setHover(points.length > DURATION.initialHover ? DURATION.initialHover : null);
+  rows.forEach((row, index) => row.addEventListener("click", () => {
+    nodes[index].scrollIntoView({ block: "nearest", inline: "nearest" });
+    select(index);
+  }));
+  const outside = event => {
+    if (!plot.contains(event.target) && !container.querySelector(".duration-table").contains(event.target)) select(null);
+  };
+  const escape = event => { if (event.key === "Escape") select(null); };
+  container.addEventListener("keydown", escape);
+  document.addEventListener("click", outside);
+  window.addEventListener("resize", position);
+  scroll.addEventListener("scroll", position);
+  durationChartCleanups.set(container, () => {
+    container.removeEventListener("keydown", escape);
+    document.removeEventListener("click", outside);
+    window.removeEventListener("resize", position);
+  });
 }
 
 export function renderVisitorChart(container, dailyVisitors) {

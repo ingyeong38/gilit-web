@@ -1,6 +1,6 @@
 // 서버 호출은 이 파일에만 둔다.
 // USE_MOCK이면 js/mock/*.json을 읽고, 서버가 계산할 값(시각, 필터링, 저장)만 여기서 흉내 낸다.
-import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL } from "/js/config.js";
+import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL, GRAPH_API_ENABLED } from "/js/config.js";
 import { addMinutes, dateOf, daysFrom, minutesBetween, toDateString } from "/js/utils.js";
 
 const MOCK_FAVORITES_KEY = "gilit:mock:favorites";
@@ -63,8 +63,18 @@ export async function getRoutes({ from, to, arrive, buffer, fromLat, fromLng, to
 }
 
 export async function getRouteGraph({ from, to, arrive } = {}) {
-  // 실제 그래프 API는 별도 범위다. 미구현 그래프가 경로 표시를 막지 않게 한다.
-  if (!USE_MOCK_ROUTES) return [];
+  if (!USE_MOCK_ROUTES) {
+    if (!GRAPH_API_ENABLED) return [];
+    // 그래프만 10초 제한을 둔다. 오류/지연이 지도와 카드 조회를 막지 않는다.
+    const controller = new AbortController();
+    let timer;
+    try {
+      return await Promise.race([
+        requestJson(buildUrl("/routes/graph", { from, to, arrive }), { signal: controller.signal }),
+        new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new ApiError("그래프 응답이 늦습니다.", 504)); }, 10000); }),
+      ]);
+    } finally { clearTimeout(timer); }
+  }
 
   const graph = await readMock("routeGraph.json");
   if (!arrive) return graph;
