@@ -1,7 +1,7 @@
 // 화면 접근 권한을 한 곳에서 처리한다.
 // 이 검사는 화면 흐름(UX)을 위한 것일 뿐 보안 장치가 아니다. localStorage는 사용자가 고칠 수 있으므로,
 // 보호된 화면이 부르는 API(/api/favorites, /api/history, /api/stats)는 서버에서도 세션을 확인해 401을 돌려줘야 한다.
-import { getUser, onAuthChange } from "/js/auth.js";
+import { getUser, onAuthChange, initializeAuth } from "/js/auth.js";
 import { openAuthModal } from "/js/components/authModal.js";
 
 // 로그인해야 들어갈 수 있는 화면. 추가하거나 뺄 때는 이 배열을 고친다.
@@ -27,7 +27,7 @@ export function installAuthGuard() {
     if (!link || link.origin !== location.origin || !isProtected(link.pathname) || isLoggedIn()) return;
 
     event.preventDefault();
-    openAuthModal({ onLogin: () => location.assign(link.href) });
+    openAuthModal({ returnTo: link.pathname + link.search + link.hash, onLogin: () => location.assign(link.href) });
   });
 
   // 보호된 화면에서 로그아웃하면 길찾기로 보낸다.
@@ -38,7 +38,8 @@ export function installAuthGuard() {
 
 // 보호된 화면의 페이지 스크립트가 데이터를 불러오기 전에 기다린다.
 // 로그인 상태이면 바로 끝나고, 아니면 본문을 숨긴 채 로그인 모달을 띄운다.
-export function requirePageAccess() {
+export async function requirePageAccess() {
+  await initializeAuth();
   const content = document.querySelector("[data-auth-content]");
   const showContent = () => {
     if (content) content.hidden = false;
