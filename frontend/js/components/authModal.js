@@ -1,3 +1,4 @@
+import { USE_MOCK } from "/js/config.js";
 import { ApiError, loginWithEmail, signup } from "/js/api.js";
 import { login as loginWithProvider, setUser } from "/js/auth.js";
 import { icon } from "/js/components/icon.js";
@@ -134,6 +135,7 @@ function setupForm(form, rules, onSubmit) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (button.disabled) return;
     submitted = true;
     const invalid = Object.keys(rules).filter((name) => !check(name));
     if (invalid.length) {
@@ -142,7 +144,10 @@ function setupForm(form, rules, onSubmit) {
     }
 
     formError.hidden = true;
-    button.disabled = true;
+    const controls = [...form.closest(".auth-modal").querySelectorAll("button:not(.modal-close), input")];
+    controls.forEach((control) => { control.disabled = true; });
+    button.textContent = "처리 중…";
+    form.setAttribute("aria-busy", "true");
     try {
       await onSubmit();
     } catch (error) {
@@ -150,7 +155,9 @@ function setupForm(form, rules, onSubmit) {
       formError.textContent = fromServer ? error.message : "잠시 후 다시 시도해 주세요.";
       formError.hidden = false;
     } finally {
-      button.disabled = false;
+      controls.forEach((control) => { control.disabled = false; });
+      button.textContent = form.elements.nickname ? "가입하기" : "로그인";
+      form.setAttribute("aria-busy", "false");
     }
   });
 }
@@ -167,10 +174,14 @@ function bindPasswordToggles(root) {
   });
 }
 
+let activeAuthModal = null;
+
 // view: "login" | "signup". 로그인에 성공하면 사용자 정보를 저장하고 onLogin을 부른다.
 // onDismiss는 로그인하지 않고 닫았을 때(X, 배경 클릭, Esc) 불린다.
-export function openAuthModal({ view = "login", onLogin, onDismiss }) {
+export function openAuthModal({ view = "login", onLogin, onDismiss, returnTo, message = "" } = {}) {
+  if (activeAuthModal?.isConnected) return;
   const { element, close } = openModal({ className: "modal auth-modal", content: "", onDismiss });
+  activeAuthModal = element;
   const modal = element.querySelector(".modal");
   modal.setAttribute("aria-labelledby", "auth-title");
 
@@ -199,6 +210,7 @@ export function openAuthModal({ view = "login", onLogin, onDismiss }) {
           agreeTerms: form.elements.agreeTerms.checked,
           agreePrivacy: form.elements.agreePrivacy.checked,
         });
+        if (!element.isConnected) return;
         render("login", { email: user.email, notice: "가입이 완료되었어요. 로그인해 주세요." });
       });
       form.elements.nickname.focus();
@@ -210,13 +222,28 @@ export function openAuthModal({ view = "login", onLogin, onDismiss }) {
         email: form.elements.email.value.trim(),
         password: form.elements.password.value,
       });
+      if (!element.isConnected) return;
       setUser(user);
       finishLogin();
     });
     modal.querySelectorAll("[data-provider]").forEach((button) => {
       button.addEventListener("click", () => {
-        loginWithProvider(button.dataset.provider);
-        finishLogin();
+        if (button.disabled) return;
+        const notice = form.querySelector(".form-notice");
+        modal.querySelectorAll("button:not(.modal-close), input").forEach((control) => { control.disabled = true; });
+        modal.setAttribute("aria-busy", "true");
+        notice.textContent = "인증 페이지로 이동 중…";
+        notice.hidden = false;
+        try {
+          loginWithProvider(button.dataset.provider, returnTo);
+        } catch (error) {
+          notice.hidden = true;
+          const errorEl = form.querySelector(".form-error");
+          errorEl.textContent = error instanceof ApiError ? error.message : "로그인을 시작하지 못했습니다. 다시 시도해 주세요.";
+          errorEl.hidden = false;
+          modal.querySelectorAll("button:not(.modal-close), input").forEach((control) => { control.disabled = false; });
+          modal.setAttribute("aria-busy", "false");
+        }
       });
     });
 
@@ -229,5 +256,9 @@ export function openAuthModal({ view = "login", onLogin, onDismiss }) {
     (email ? form.elements.password : form.elements.email).focus();
   };
 
-  render(view);
+  render(view, { notice: message || (USE_MOCK ? "개발용 이메일 Mock 모드입니다. 실제 인증이 아닙니다." : "") });
+  window.addEventListener("pageshow", () => {
+    modal.querySelectorAll("button, input").forEach((control) => { control.disabled = false; });
+    modal.setAttribute("aria-busy", "false");
+  }, { once: true });
 }
