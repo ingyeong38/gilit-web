@@ -44,7 +44,11 @@ PUBLIC_PROVIDER_ERROR_STATUS: dict[type[RouteProviderError], int] = {
 }
 PROVIDER_ERROR_DEFAULT_STATUS = 502
 
+INVALID_BODY_MESSAGE = "요청 본문은 JSON 객체여야 합니다."
+
 HTTP_ERROR_MESSAGES = {
+    # 본문을 읽지 못한 경우 (UTF-8이 아닌 본문 등). FastAPI가 HTTPException(400)으로 올린다.
+    400: INVALID_BODY_MESSAGE,
     404: "찾을 수 없습니다.",
     405: "허용되지 않은 요청 방식입니다.",
 }
@@ -81,7 +85,6 @@ INVALID_MESSAGES = {
     "travel_mode": "이동수단은 car 또는 transit이어야 합니다.",
 }
 PLACE_PREFIX = {"origin": "출발지 ", "destination": "목적지 "}
-INVALID_BODY_MESSAGE = "요청 본문은 JSON 객체여야 합니다."
 
 
 def validation_message(errors: list[dict]) -> str:

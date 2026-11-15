@@ -9,7 +9,7 @@ import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.auth.errors import (
     EMAIL_TAKEN,
@@ -23,6 +23,9 @@ from app.auth.rate_limit import RateLimiter, retry_after_header
 from app.auth.stores import MemorySessionStore, MemoryUserStore, SessionRecord, SessionStore, User, UserStore
 from app.auth.validation import validate_login, validate_signup
 from app.departure import KST
+
+if TYPE_CHECKING:
+    from app.db import MySQLConfig
 
 SESSION_TTL = timedelta(days=14)  # 고정 만료. 사용해도 늘어나지 않는다
 SESSION_TOUCH_INTERVAL = timedelta(hours=1)  # last_seen_at은 이 간격보다 자주 쓰지 않는다
@@ -153,9 +156,21 @@ def _check_limit(limiter: RateLimiter, key: str) -> None:
         raise AuthError(429, TOO_MANY_REQUESTS, headers=retry_after_header(retry_after))
 
 
-def create_auth_service(store: str, clock: Callable[[], datetime] | None = None) -> AuthService:
+def create_auth_service(
+    store: str,
+    clock: Callable[[], datetime] | None = None,
+    mysql: "MySQLConfig | None" = None,
+) -> AuthService:
+    """AUTH_STORE에 맞는 저장소로 AuthService를 만든다. mysql이면 접속 정보(MySQLConfig)가 필요하다."""
     if store == "memory":
         return AuthService(MemoryUserStore(), MemorySessionStore(), clock=clock)
     if store == "mysql":
-        raise ValueError("AUTH_STORE=mysql은 아직 구현되지 않았습니다 (2단계). 지금은 memory를 쓰세요.")
+        if mysql is None:
+            raise ValueError("AUTH_STORE=mysql에는 DB 접속 정보(DB_HOST, DB_NAME, DB_USER, DB_PASSWORD)가 필요합니다.")
+        # pymysql은 mysql을 쓸 때만 불러온다.
+        from app.auth.mysql_stores import MySQLSessionStore, MySQLUserStore
+        from app.db import ConnectionPool
+
+        pool = ConnectionPool(mysql)
+        return AuthService(MySQLUserStore(pool), MySQLSessionStore(pool), clock=clock)
     raise ValueError(f"AUTH_STORE는 {', '.join(AUTH_STORES)} 중 하나여야 합니다: {store}")

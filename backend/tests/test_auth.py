@@ -28,6 +28,7 @@ from app.auth import (
 )
 from app.config import Settings
 from app.departure import MockRouteProvider
+from tests.auth_backends import MemoryBackend
 from tests.conftest import NOW
 
 BASE_URL = "https://testserver"
@@ -54,10 +55,23 @@ class FakeMonotonic:
 class Env:
     app: object
     client: TestClient
-    users: MemoryUserStore
-    sessions: MemorySessionStore
+    backend: object  # tests/auth_backends.py의 MemoryBackend 또는 MySQLBackend
     clock: FakeClock
     monotonic: FakeMonotonic
+
+    @property
+    def users(self):
+        return self.backend.users
+
+    @property
+    def sessions(self):
+        return self.backend.sessions
+
+    def session_count(self) -> int:
+        return self.backend.session_count()
+
+    def add_social_only_user(self, email: str = "kakao@example.com") -> User:
+        return self.backend.add_social_only_user(email, "카카오사용자")
 
     def new_client(self, ip: str = "testclient", **kwargs) -> TestClient:
         return TestClient(self.app, base_url=BASE_URL, client=(ip, 50000), **kwargs)
@@ -66,12 +80,12 @@ class Env:
         return self.new_client(cookies={SESSION_COOKIE: token}).get("/api/auth/me")
 
 
-def make_env(settings: Settings | None = None) -> Env:
-    users, sessions = MemoryUserStore(), MemorySessionStore()
+def make_env(settings: Settings | None = None, backend=None) -> Env:
+    backend = backend or MemoryBackend()
     clock, monotonic = FakeClock(NOW), FakeMonotonic()
     auth = AuthService(
-        users,
-        sessions,
+        backend.users,
+        backend.sessions,
         PasswordHasher(rounds=4),
         clock=clock,
         login_ip_limiter=RateLimiter(5, 60, clock=monotonic),
@@ -79,12 +93,13 @@ def make_env(settings: Settings | None = None) -> Env:
         signup_ip_limiter=RateLimiter(10, 3600, clock=monotonic),
     )
     app = create_app(settings or Settings(), MockRouteProvider(), clock=clock, auth=auth)
-    return Env(app, TestClient(app, base_url=BASE_URL), users, sessions, clock, monotonic)
+    return Env(app, TestClient(app, base_url=BASE_URL), backend, clock, monotonic)
 
 
 @pytest.fixture
-def env() -> Env:
-    return make_env()
+def env(store_backend) -> Env:
+    """계약 테스트: 메모리와 MySQL(mysql_live) 저장소에서 같은 테스트를 돌린다."""
+    return make_env(backend=store_backend)
 
 
 def signup_body(**overrides):
@@ -112,9 +127,11 @@ def test_signup_returns_user_without_session(env):
     response = signup(env.client, name="  길잇  ", email="  User@Example.COM ")
 
     assert response.status_code == 201
-    assert response.json() == {"id": "1", "name": "길잇", "email": "user@example.com", "provider": "email"}
+    body = response.json()
+    assert body.pop("id").isdigit()  # DB BIGINT를 문자열로
+    assert body == {"name": "길잇", "email": "user@example.com", "provider": "email"}
     assert "set-cookie" not in response.headers  # 가입만 하고 로그인 세션은 만들지 않는다
-    assert len(env.sessions) == 0
+    assert env.session_count() == 0
     assert env.client.get("/api/auth/me").status_code == 401
 
 
@@ -136,7 +153,7 @@ def test_signup_duplicate_email_is_409_case_insensitive(env):
 
 
 def test_signup_duplicate_of_social_only_account_is_409(env):
-    env.users.add_user(User(id=0, email="kakao@example.com", nickname="카카오사용자"))
+    env.add_social_only_user("kakao@example.com")
 
     response = signup(env.client, email="kakao@example.com")
 
@@ -245,12 +262,12 @@ def test_default_bcrypt_cost_is_12():
 
 
 def test_login_sets_session_cookie_and_returns_user(env):
-    signup(env.client)
+    user_id = signup(env.client).json()["id"]
 
     response = login(env.client, email=" USER@example.com ")
 
     assert response.status_code == 200
-    assert response.json() == {"id": "1", "name": "길잇", "email": "user@example.com", "provider": "email"}
+    assert response.json() == {"id": user_id, "name": "길잇", "email": "user@example.com", "provider": "email"}
     cookie = set_cookie_header(response)
     attributes = [part.strip().lower() for part in cookie.split(";")]
     assert cookie.startswith(f"{SESSION_COOKIE}=")
@@ -264,13 +281,13 @@ def test_login_sets_session_cookie_and_returns_user(env):
 
 
 def test_me_after_login_returns_same_user(env):
-    signup(env.client)
+    user_id = signup(env.client).json()["id"]
     login(env.client)
 
     response = env.client.get("/api/auth/me")
 
     assert response.status_code == 200
-    assert response.json() == {"id": "1", "name": "길잇", "email": "user@example.com", "provider": "email"}
+    assert response.json() == {"id": user_id, "name": "길잇", "email": "user@example.com", "provider": "email"}
 
 
 def test_cookie_secure_can_be_turned_off_for_local_http():
@@ -305,20 +322,20 @@ def test_session_store_keeps_only_token_hash(env):
 )
 def test_login_failures_share_one_401_message(env, email, password):
     signup(env.client)
-    env.users.add_user(User(id=0, email="kakao@example.com", nickname="카카오사용자"))
+    env.add_social_only_user("kakao@example.com")
 
     response = login(env.client, email=email, password=password)
 
     assert response.status_code == 401
     assert response.json() == {"message": "이메일 또는 비밀번호가 올바르지 않습니다."}
     assert "set-cookie" not in response.headers
-    assert len(env.sessions) == 0
+    assert env.session_count() == 0
 
 
 @pytest.mark.parametrize("email", ["nobody@example.com", "kakao@example.com"])
 def test_login_runs_bcrypt_even_without_password_hash(env, monkeypatch, email):
     """계정이 없거나 소셜 전용이어도 bcrypt 비교를 한 번 해서 응답 시간으로 계정 존재가 드러나지 않게 한다."""
-    env.users.add_user(User(id=0, email="kakao@example.com", nickname="카카오사용자"))
+    env.add_social_only_user("kakao@example.com")
     calls = []
     real_checkpw = bcrypt.checkpw
     monkeypatch.setattr("app.auth.passwords.bcrypt.checkpw", lambda pw, h: calls.append(h) or real_checkpw(pw, h))
@@ -371,7 +388,7 @@ def test_logout_deletes_session_and_expires_cookie(env):
     cookie = set_cookie_header(response).lower()
     assert cookie.startswith(f"{SESSION_COOKIE}=")
     assert "max-age=0" in cookie
-    assert len(env.sessions) == 0
+    assert env.session_count() == 0
     assert env.client.get("/api/auth/me").status_code == 401
     # 쿠키를 따로 보관해 둔 사람이 다시 보내도 서버 세션이 없으므로 401이다.
     assert env.me_with(token).status_code == 401
@@ -395,7 +412,7 @@ def test_each_login_issues_new_token_and_deletes_previous_session(env):
     assert first != second
     assert env.me_with(first).status_code == 401
     assert env.me_with(second).status_code == 200
-    assert len(env.sessions) == 1
+    assert env.session_count() == 1
 
 
 def test_planted_session_cookie_is_not_adopted(env):
@@ -429,7 +446,7 @@ def test_session_expires_after_14_days(env):
 
     env.clock.now = NOW + timedelta(days=14)
     assert env.me_with(token).status_code == 401
-    assert len(env.sessions) == 0
+    assert env.session_count() == 0
 
 
 def test_session_use_does_not_extend_expiry_and_touches_hourly(env):
@@ -611,10 +628,10 @@ def test_require_user_and_optional_user_dependencies(env):
     assert anonymous.get("/api/_probe/required").json() == {"message": "로그인이 필요합니다."}
     assert anonymous.get("/api/_probe/optional").json() == {"id": None}
 
-    signup(env.client)
+    user_id = int(signup(env.client).json()["id"])
     login(env.client)
-    assert env.client.get("/api/_probe/required").json() == {"id": 1, "provider": "email"}
-    assert env.client.get("/api/_probe/optional").json() == {"id": 1}
+    assert env.client.get("/api/_probe/required").json() == {"id": user_id, "provider": "email"}
+    assert env.client.get("/api/_probe/optional").json() == {"id": user_id}
 
 
 # --- 설정 ---
@@ -643,9 +660,60 @@ def test_invalid_auth_settings_raise(env, name):
         Settings.from_env(env)
 
 
-def test_mysql_store_is_not_available_yet():
-    with pytest.raises(ValueError, match="2단계"):
-        create_app(Settings(auth_store="mysql"), MockRouteProvider())
+def test_mysql_store_requires_db_settings_and_names_missing_ones():
+    with pytest.raises(ValueError) as caught:
+        create_app(Settings(auth_store="mysql", db_host="localhost"), MockRouteProvider())
+
+    message = str(caught.value)
+    assert "DB_NAME" in message and "DB_USER" in message and "DB_PASSWORD" in message
+    assert "DB_HOST" not in message
+
+
+def test_mysql_store_is_used_when_configured_without_connecting():
+    """앱을 만들 때는 DB에 연결하지 않는다 (처음 쓸 때 연결). DB가 꺼져 있어도 앱은 뜬다."""
+    from app.auth.mysql_stores import MySQLSessionStore, MySQLUserStore
+
+    settings = Settings.from_env(
+        {"AUTH_STORE": "mysql", "DB_HOST": "db.invalid", "DB_NAME": "gilit", "DB_USER": "gilit_app", "DB_PASSWORD": "pw"}
+    )
+    app = create_app(settings, MockRouteProvider())
+
+    assert isinstance(app.state.auth.users, MySQLUserStore)
+    assert isinstance(app.state.auth.sessions, MySQLSessionStore)
+    assert app.state.auth.users.pool is app.state.auth.sessions.pool  # 두 저장소가 연결 풀 하나를 함께 쓴다
+
+
+def test_db_settings_from_env_and_password_is_hidden():
+    settings = Settings.from_env(
+        {"DB_HOST": " localhost ", "DB_PORT": "3307", "DB_NAME": "gilit", "DB_USER": "gilit_app", "DB_PASSWORD": " p w "}
+    )
+    config = settings.mysql_config()
+
+    assert (config.host, config.port, config.database, config.user) == ("localhost", 3307, "gilit", "gilit_app")
+    assert config.password == " p w "  # 비밀번호는 공백을 자르지 않는다
+    assert "p w" not in repr(settings)
+    assert "p w" not in repr(config)
+    assert config.connect_kwargs()["charset"] == "utf8mb4"
+    assert config.connect_kwargs()["init_command"] == "SET time_zone = '+09:00'"
+    assert "ssl" not in config.connect_kwargs()
+
+
+def test_db_ssl_ca_enables_tls():
+    settings = Settings.from_env(
+        {"DB_HOST": "x.rds.amazonaws.com", "DB_NAME": "gilit", "DB_USER": "gilit_app", "DB_PASSWORD": "pw", "DB_SSL_CA": "C:/certs/global-bundle.pem"}
+    )
+
+    assert settings.mysql_config().connect_kwargs()["ssl"] == {"ca": "C:/certs/global-bundle.pem"}
+
+
+def test_unreadable_body_is_400_with_body_message(env):
+    """UTF-8이 아닌 본문(FastAPI가 HTTPException(400)으로 올린다)도 문구를 정해 보낸다."""
+    response = env.client.post(
+        "/api/auth/signup", content='{"name": "테스터"}'.encode("cp949"), headers={"Content-Type": "application/json"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"message": "요청 본문은 JSON 객체여야 합니다."}
 
 
 def test_app_from_env_uses_memory_store_by_default():

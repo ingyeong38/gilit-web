@@ -10,7 +10,8 @@ backend/
 │   ├── main.py                # 웹 서버 진입점 (uvicorn app.main:app)
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
 │   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
-│   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory), 세션, 횟수 제한
+│   ├── db.py                  # MySQL 연결 풀 (PyMySQL, utf8mb4, time_zone +09:00), KST 시각 변환
+│   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한
 │   ├── api/                   # 웹 API (FastAPI)
 │   │   ├── factory.py         # create_app: Provider·Solver·AuthService를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
 │   │   ├── auth.py            # /api/auth/signup·login·logout·me, require_user·optional_user 의존성
@@ -28,9 +29,10 @@ backend/
 │       ├── errors.py          # 예외
 │       └── cli.py             # 실행 예제
 ├── scripts/check_road_routes.py # 수동 실조회 점검 (호출이 많다. 아래 "경로 비교" 참고)
-├── tests/                     # pytest (test_kakao_live.py는 실제 API 호출, 기본 실행에서 제외)
+├── scripts/seed_dev_users.py  # 로컬 DB에 로그인 테스트 계정 만들기 (db/README.md "로컬 DB 준비")
+├── tests/                     # pytest (kakao_live·mysql_live 마커 테스트는 기본 실행에서 제외)
 ├── pyproject.toml             # pytest 설정
-├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn, bcrypt
+├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn, bcrypt, PyMySQL
 └── requirements-dev.txt       # requirements.txt + pytest, httpx2 (TestClient)
 ```
 
@@ -79,11 +81,14 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `ROUTE_COMPARE_OPTIONS` | `recommend,time,distance,free` | 경로 비교에 쓸 옵션. 적은 순서가 카드 순서다 |
 | `ROUTE_COMPARE_MAX_CALLS` | `6` | 경로 비교의 옵션 하나당 소요시간 조회 상한. 상세 경로 조회는 옵션당 1~2회 따로 든다 |
 | `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다. `/api/*` POST·PATCH·DELETE의 출처 검사도 이 목록과 같은 호스트만 허용한다 |
-| `AUTH_STORE` | `memory` | 회원·세션 저장소. `memory`는 서버를 다시 시작하면 사라진다. `mysql`은 2단계에서 구현 |
+| `AUTH_STORE` | `memory` | 회원·세션 저장소. `memory`는 서버를 다시 시작하면 사라진다. `mysql`은 아래 `DB_*`가 필요하다 |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | 없음 (`DB_PORT`는 `3306`) | MySQL 접속 정보. 로컬 MySQL과 RDS는 이 값만 다르다. 계정은 서비스 계정 `gilit_app` (`db/README.md`) |
+| `DB_SSL_CA` | 없음 | RDS CA 번들 경로. 주면 TLS로 연결한다 |
+| `TEST_DB_NAME` | 없음 | `pytest -m mysql_live` 전용 DB (예: `gilit_test`). 테스트가 회원 데이터를 지우므로 `_test`로 끝나고 `DB_NAME`과 달라야 한다 |
 | `COOKIE_SECURE` | `true` | 세션 쿠키(`gilit_session`)의 Secure 속성. 운영은 반드시 `true`. 로컬 http에서 쿠키가 안 실리면 `false` |
 | `SECRET_KEY` | 없음 | 서명용 비밀 값. 3단계(OAuth state 쿠키)부터 필수 |
 
-테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`를 두어도 기본 테스트는 실제 API를 부르지 않는다.
+테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`나 `AUTH_STORE=mysql`을 두어도 기본 테스트는 실제 API와 DB를 쓰지 않는다. 회원 저장소 계약 테스트를 MySQL에서 돌리려면 `pytest -m mysql_live`를 쓴다 (`TEST_DB_NAME` DB에 `db/schema.sql`이 적용돼 있어야 한다).
 
 ## 출발시각 역산 엔진
 

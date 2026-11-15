@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from app.auth.service import AUTH_STORES
+from app.db import MySQLConfig
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
 
 ROUTE_PROVIDERS = ("mock", "kakao")
@@ -36,9 +37,16 @@ class Settings:
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     route_compare_options: tuple[str, ...] = tuple(ROUTE_OPTIONS)  # 경로 비교에 쓸 옵션과 카드 순서
     route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
-    auth_store: str = "memory"  # 회원·세션 저장소. memory(재시작하면 사라짐) | mysql(2단계)
+    auth_store: str = "memory"  # 회원·세션 저장소. memory(재시작하면 사라짐) | mysql
     cookie_secure: bool = True  # 세션 쿠키의 Secure 속성. 로컬 http에서 쿠키가 안 실리면 false
     secret_key: str | None = field(default=None, repr=False)  # 서명용 비밀 값 (3단계 OAuth state 쿠키)
+    # MySQL 접속 정보. 로컬 MySQL과 RDS는 이 값만 다르다. 코드에 기본 호스트·계정을 두지 않는다.
+    db_host: str | None = None
+    db_port: int = 3306
+    db_name: str | None = None
+    db_user: str | None = None
+    db_password: str | None = field(default=None, repr=False)
+    db_ssl_ca: str | None = None  # RDS CA 번들 경로. 주면 TLS로 연결한다
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -58,6 +66,27 @@ class Settings:
             auth_store=_auth_store_env(env),
             cookie_secure=_bool_env(env, "COOKIE_SECURE", cls.cookie_secure),
             secret_key=env.get("SECRET_KEY", "").strip() or None,
+            db_host=env.get("DB_HOST", "").strip() or None,
+            db_port=_int_env(env, "DB_PORT", cls.db_port),
+            db_name=env.get("DB_NAME", "").strip() or None,
+            db_user=env.get("DB_USER", "").strip() or None,
+            db_password=env.get("DB_PASSWORD") or None,  # 비밀번호는 공백도 값일 수 있어 자르지 않는다
+            db_ssl_ca=env.get("DB_SSL_CA", "").strip() or None,
+        )
+
+    def mysql_config(self) -> MySQLConfig:
+        """DB 접속 정보. 빠진 값이 있으면 이름을 알려 준다 (값은 출력하지 않는다)."""
+        required = {"DB_HOST": self.db_host, "DB_NAME": self.db_name, "DB_USER": self.db_user, "DB_PASSWORD": self.db_password}
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"AUTH_STORE=mysql에는 {', '.join(missing)} 환경변수가 필요합니다.")
+        return MySQLConfig(
+            host=self.db_host,
+            port=self.db_port,
+            database=self.db_name,
+            user=self.db_user,
+            password=self.db_password,
+            ssl_ca=self.db_ssl_ca,
         )
 
     def solver_config(self) -> SolverConfig:

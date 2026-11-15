@@ -31,7 +31,8 @@ def create_app(
     if provider is None:
         provider = create_route_provider(settings)
     if auth is None:
-        auth = create_auth_service(settings.auth_store, clock=clock)
+        mysql = settings.mysql_config() if settings.auth_store == "mysql" else None
+        auth = create_auth_service(settings.auth_store, clock=clock, mysql=mysql)
 
     app = FastAPI(
         title="길잇 API",
