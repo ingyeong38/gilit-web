@@ -11,10 +11,12 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | POST | `/api/departure` | 권장 출발시각 계산 (**구현됨**) | 불필요 | 없음 | - |
 | GET | `/api/routes?from=&to=&arrive=&buffer=` | 경로 비교: 옵션별 권장 출발시각·소요시간·거리·통행료 (**구현됨**) | 불필요 | `getRoutes` | `routes.json` |
 | GET | `/api/routes/graph?from=&to=&arrive=` | 출발시각별 소요시간 | 불필요 | `getRouteGraph` | `routeGraph.json` |
-| POST | `/api/auth/signup` | 이메일 회원가입 | 불필요 | `signup` | localStorage |
-| POST | `/api/auth/login` | 이메일 로그인 | 불필요 | `loginWithEmail` | localStorage |
-| POST | `/api/auth/logout` | 로그아웃 | 불필요 | `logoutSession` | 호출 안 함 |
-| GET | `/api/auth/me` | 내 정보 | **필요** | 없음 | - |
+| POST | `/api/auth/signup` | 이메일 회원가입 (**구현됨**) | 불필요 | `signup` | localStorage |
+| POST | `/api/auth/login` | 이메일 로그인 (**구현됨**) | 불필요 | `loginWithEmail` | localStorage |
+| POST | `/api/auth/logout` | 로그아웃 (**구현됨**) | 불필요 | `logoutSession` | 호출 안 함 |
+| GET | `/api/auth/me` | 내 정보 (**구현됨**) | **필요** | `getSessionUser` | sessionStorage (`gilit:mock:session`) |
+| GET | `/api/auth/{google\|kakao}/start` | 소셜 로그인 시작, 제공자 화면으로 302 (**구현됨**) | 불필요 | `getSocialLoginUrl` (페이지 이동) | 없음 |
+| GET | `/api/auth/{google\|kakao}/callback` | 소셜 로그인 콜백, 프론트로 302 (**구현됨**) | 불필요 | 제공자가 부름 | 없음 |
 | GET | `/api/favorites` | 즐겨찾기 목록 | **필요** | `getFavorites` | `favorites.json` |
 | POST | `/api/favorites` | 즐겨찾기 추가 | **필요** | `addFavorite` | localStorage |
 | PATCH | `/api/favorites?id=` | 즐겨찾기 수정 | **필요** | 없음 | - |
@@ -40,9 +42,19 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 
 ### 인증
 
-로그인에 성공하면 서버가 세션을 만들고 `HttpOnly; Secure; SameSite=Lax` 쿠키로 세션 ID를 내려준다. 소셜 로그인도 같은 세션 방식을 쓴다. 프론트는 같은 출처로 요청하므로 쿠키가 자동으로 실린다. 프론트는 응답 본문의 사용자 정보를 화면 표시용으로만 `localStorage`(`gilit:user`)에 저장하고, 토큰은 다루지 않는다.
+서버 세션 방식이다. 이메일 로그인(`POST /api/auth/login`)이나 소셜 로그인 콜백이 성공하면 서버가 세션을 만들고 쿠키를 내려준다. 프론트는 토큰을 다루지 않는다.
 
-"로그인 필요" API는 세션이 없거나 만료되면 `401` "로그인이 필요합니다."를 돌려준다. 프론트도 해당 화면(`js/guard.js`의 `PROTECTED_PATHS`)을 로그인 모달로 막지만 화면 흐름용일 뿐이므로, 서버가 반드시 직접 검사한다.
+| 쿠키 | 값 | 속성 |
+| --- | --- | --- |
+| `gilit_session` | 무작위 토큰 (서버 DB에는 SHA-256 해시만 저장) | `HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600`(14일), `Secure`는 서버 설정 `COOKIE_SECURE`(운영 `true`). `Domain` 없음 |
+| `gilit_oauth` | 소셜 로그인 state·PKCE 값 (HMAC 서명, 암호화 아님) | `HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=600`(10분). 콜백에서 결과와 상관없이 지운다 |
+
+- 세션 만료는 로그인 시각 + 14일 고정이다. 사용해도 늘어나지 않는다.
+- 로그인할 때마다 새 토큰을 발급하고, 요청에 실려 온 이전 세션은 지운다 (세션 고정 방지). 다른 기기의 세션은 그대로 둔다.
+- 프론트는 같은 출처(`BASE_URL = "/api"`, 개발은 `http://localhost:8000`)로 요청하므로 `fetch`의 기본값(`credentials: "same-origin"`)으로 쿠키가 실린다. 프론트와 API를 다른 출처로 띄우면 쿠키가 실리지 않는다.
+- 로그인 상태는 화면을 열 때 `GET /api/auth/me`로 확인한다. 프론트는 사용자 정보를 메모리에만 두고 `localStorage`의 옛 값(`gilit:user`)은 지운다.
+
+"로그인 필요" API는 세션이 없거나 만료되면 **반드시 `401`** "로그인이 필요합니다."를 돌려준다. 프론트는 `401`만 비로그인으로 보고 그 밖의 코드는 오류로 안내한다. 프론트도 해당 화면(`js/guard.js`의 `PROTECTED_PATHS`)을 로그인 모달로 막지만 화면 흐름용일 뿐이므로, 서버가 반드시 직접 검사한다. 서버 코드에서는 의존성 `require_user`(없으면 401)와 `optional_user`(없으면 `None`)를 쓴다 (`backend/app/api/auth.py`).
 
 ### 오류
 
@@ -51,19 +63,23 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | 코드 | 언제 | `message` 예 |
 | --- | --- | --- |
 | `400` | 입력값 검증 실패 (필수값, 형식, 범위) | 올바른 이메일 형식이 아닙니다. |
+| `400` | 요청 본문이 JSON 객체가 아님 (깨진 JSON, UTF-8이 아닌 본문, 배열 등) | 요청 본문은 JSON 객체여야 합니다. |
 | `401` | 로그인 필요 API에 세션 없음 | 로그인이 필요합니다. |
 | `401` | 이메일 로그인 실패 | 이메일 또는 비밀번호가 올바르지 않습니다. |
+| `403` | 상태를 바꾸는 요청(POST·PUT·PATCH·DELETE)의 출처가 허용되지 않음 (아래 "보안 규칙") | 허용되지 않은 출처의 요청입니다. |
 | `404` | 리소스가 없거나 내 것이 아님, 없는 경로 | 찾을 수 없습니다. |
 | `405` | 허용되지 않은 메서드 | 허용되지 않은 요청 방식입니다. |
 | `409` | 이메일 중복 등 충돌 | 이미 가입된 이메일입니다. |
 | `422` | 입력은 올바르지만 답을 낼 수 없음 (경로 없음, 제시간 도착 불가) | 경로를 찾을 수 없습니다 |
-| `429` | 요청 횟수 제한 초과 | 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요. |
+| `429` | 요청 횟수 제한 초과 (`Retry-After` 헤더에 초) | 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요. |
 | `500` | 서버 오류 | 잠시 후 다시 시도해 주세요. |
 | `502` | 외부 길찾기 API 오류 (인증, 거부, 연결 실패, 응답 이상) | 길찾기 정보를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요. |
 | `503` | 외부 길찾기 API 호출 한도 초과 | 길찾기 API 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요. |
 | `504` | 외부 길찾기 API 응답 시간 초과 | 길찾기 서버 응답이 늦습니다. 잠시 후 다시 시도해 주세요. |
 
 FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 실패도 `400` + `message` 하나로 바꿔 보낸다 (`backend/app/api/errors.py`). 5xx의 원인(외부 API 응답 문구, HTTP 코드 등)은 응답에 넣지 않고 서버 로그에만 남긴다.
+
+예외: 소셜 로그인 `start`·`callback`은 브라우저가 페이지째 이동해 오는 주소라 JSON 오류를 보내지 않는다. 어떤 실패든 `/pages/search.html?auth_result=...`로 302 한다 (아래 "소셜 로그인"). 없는 제공자(`/api/auth/naver/start` 등)만 `404` JSON이다.
 
 ### CORS
 
@@ -74,8 +90,10 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 ### 보안 규칙
 
 - 모든 쿼리는 파라미터 바인딩(prepared statement)으로 실행한다. 문자열을 이어 붙여 SQL을 만들지 않는다.
-- 비밀번호는 bcrypt(cost 12 이상)로 해시해 `users.password_hash`에만 저장한다. 평문 비밀번호를 DB, 로그, 오류 응답에 남기지 않는다. 요청 본문 로깅을 켠다면 `password` 필드를 가린다.
-- 로그인 시도 횟수 제한(예: IP·이메일별 분당 5회)을 두고, 넘으면 `429`를 돌려준다.
+- 비밀번호는 bcrypt(cost 12)로 해시해 `users.password_hash`에만 저장한다. 평문 비밀번호를 DB, 로그, 오류 응답에 남기지 않는다. 요청 본문 로깅을 켠다면 `password` 필드를 가린다.
+- 횟수 제한: 로그인은 IP별·이메일별 각각 분당 5회, 가입은 IP별 시간당 10회. 넘으면 `429` + `Retry-After`. 서버 프로세스 메모리에 세므로 워커가 하나일 때 정확하다.
+- 출처 검사 (CSRF 2차 방어, 1차는 `SameSite=Lax`): `/api/*`의 POST·PUT·PATCH·DELETE는 `Origin`(없으면 `Referer`)의 출처가 같은 호스트이거나 `CORS_ORIGINS`에 있어야 한다. 아니면 `403`. 둘 다 없는 요청(브라우저 밖 클라이언트)은 통과한다. `Content-Type` 검사는 하지 않는다 (프론트의 로그아웃은 본문 없이 보낸다).
+- 소셜 로그인 콜백의 인가 코드·state·토큰·쿠키 값은 서버 로그에 남기지 않는다. uvicorn 접근 로그에서도 콜백 쿼리는 `?[REDACTED]`로 가린다.
 
 ## 목업 동작
 
@@ -85,7 +103,8 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 - 그래프: 마지막 출발시각이 `arrive`가 되도록 시각을 옮긴다
 - 기록·통계: 가장 최근 날짜가 오늘이 되도록 날짜를 옮긴다
 - 장소 검색: 앞뒤 공백을 제거한 `q`가 `name` 또는 `address`에 포함된 항목을 돌려준다
-- 회원가입·로그인: 계정을 `localStorage`의 `gilit:mock:users`에 저장한다. 비밀번호는 평문이 아닌 SHA-256 값으로 두지만, 브라우저 안의 흉내일 뿐이다. 서버는 bcrypt를 쓴다.
+- 회원가입·로그인: 계정을 `localStorage`의 `gilit:mock:users`에 저장한다. 비밀번호는 평문이 아닌 SHA-256 값으로 두지만, 브라우저 안의 흉내일 뿐이다. 서버는 bcrypt를 쓴다. 로그인 상태는 탭의 `sessionStorage`(`gilit:mock:session`)에만 둔다.
+- 소셜 로그인: 프론트 mock은 없다. 서버 없이 시험하려면 서버를 `AUTH_STORE=memory OAUTH_MOCK=1`로 띄운다 (외부 호출 없이 `start`가 곧바로 콜백으로 이동한다. Google은 `mock.google@example.com`, 카카오는 이메일 없는 고정 프로필).
 
 ## 길찾기 (로그인 불필요)
 
@@ -317,8 +336,10 @@ mock 모드 (`ROUTE_PROVIDER=mock`):
 { "id": "1", "name": "길잇", "email": "user@example.com", "provider": "email" }
 ```
 
-- `name`: `users.nickname`
-- `provider`: `users.password_hash`가 있으면 `email`, 없으면 연결된 소셜 계정의 `social_accounts.provider` (`google` | `kakao`)
+- `id`: 문자열 (`users.id`)
+- `name`: `users.nickname`. 소셜 가입자는 제공자 이름(Google `name`, 카카오 `kakao_account.profile.nickname`)을 20자로 자른 값이고, 없으면 "길잇 사용자"
+- `email`: 소문자. **`null`일 수 있다** (이메일을 주지 않거나 검증되지 않은 이메일을 준 소셜 가입자, 주로 카카오)
+- `provider`: **이번 세션의 로그인 방식** `email` | `google` | `kakao` (`sessions.login_provider`). 가입 방법이 아니다.
 
 ### 검증 규칙
 
@@ -331,14 +352,24 @@ mock 모드 (`ROUTE_PROVIDER=mock`):
 | `password` | 8~64자, 영문과 숫자를 모두 포함, UTF-8 72바이트 이하 (bcrypt 한계) | 비밀번호는 영문과 숫자를 포함해 8~64자로 입력해 주세요. |
 | `agreeTerms`, `agreePrivacy` | 둘 다 `true` | 필수 약관에 모두 동의해 주세요. |
 
-### 같은 이메일의 소셜 계정 처리
+### 소셜 계정 처리 (같은 이메일)
 
-계정은 이메일 하나당 하나다 (`users.email` UNIQUE). 계정을 자동으로 합치지 않는다.
+이메일이 있는 계정은 이메일 하나당 하나다 (`users.email` UNIQUE, NULL은 여러 개 허용). **계정을 이메일로 자동 연결하지 않는다.**
 
-- 이메일 회원가입 시 같은 이메일이 이미 있으면 (소셜 가입이어도) `409` "이미 가입된 이메일입니다."를 돌려준다. 가입 화면은 중복 여부를 알려 줄 수밖에 없으므로 이 응답만 예외로 둔다.
-- 소셜 로그인 시 `social_accounts`의 `(provider, provider_user_id)`로 사용자를 찾는다. 처음 로그인하는데 그 이메일의 `users` 행이 이미 있으면 새 계정을 만들지 않고 `409` "이미 가입된 이메일입니다. 기존에 쓰던 방법으로 로그인해 주세요."를 돌려준다.
-- 이유: 카카오는 이메일 인증 여부가 보장되지 않아, 이메일만 보고 합치면 남의 계정에 로그인할 수 있다. 계정 연결은 나중에 "내 정보"에서 로그인한 상태로만 제공한다.
-- 소셜 첫 로그인으로 가입할 때 `users` 행(`password_hash` NULL)과 `social_accounts` 행을 한 트랜잭션으로 만든다. 약관 동의를 받은 시각을 `agreed_at`에 넣는다.
+| 상황 | 처리 |
+| --- | --- |
+| 이메일 회원가입, 같은 이메일 계정이 이미 있음 (가입 방법 무관) | `409` "이미 가입된 이메일입니다." |
+| 소셜 로그인, `social_accounts`에 `(provider, provider_user_id)`가 있음 | 그 계정으로 로그인. 제공자 쪽 이메일·이름이 바뀌어도 DB는 바꾸지 않는다 |
+| 소셜 첫 로그인, **검증된** 이메일이 기존 계정과 같음 (이메일 가입이든 다른 소셜이든) | 계정을 만들지도 연결하지도 않는다 → `auth_result=email_exists` |
+| 소셜 첫 로그인, 이메일이 없거나 검증되지 않음 | `email` NULL로 새 계정 (미검증 이메일은 저장하지 않는다. 기존 계정과 같아도 별도 계정) |
+| 소셜 첫 로그인, 검증된 새 이메일 | 그 이메일로 새 계정 |
+
+- `provider_user_id`: Google `sub`, 카카오 회원번호 `id`(문자열로 저장). 같은 값이라도 제공자가 다르면 다른 계정이다.
+- 검증된 이메일: Google은 `email_verified`가 참, 카카오는 `is_email_valid`와 `is_email_verified`가 모두 참일 때.
+- 자동 연결하지 않는 이유: 이메일 회원가입은 이메일 소유를 확인하지 않는다. 남이 피해자 이메일로 먼저 가입해 두면, 피해자의 소셜 로그인이 그 계정에 붙어 공격자도 같은 계정에 들어갈 수 있다. 계정 연결은 나중에 로그인한 상태의 "내 정보"에서만 제공한다.
+- 소셜 가입은 `users`(`password_hash` NULL)와 `social_accounts`를 한 트랜잭션으로 넣는다. `agreed_at`은 가입 시각이다 (로그인 모달의 "계속하면 서비스 이용약관 및 개인정보 처리방침에 동의하게 됩니다." 안내를 동의로 본다).
+- 같은 소셜 계정으로 동시에 첫 로그인해도 계정은 하나만 생기고 모두 그 계정으로 로그인된다 (UNIQUE 위반이면 다시 조회한다).
+- 소셜 전용 계정은 이메일 로그인을 할 수 없다 (`401`, 계정 없음과 같은 응답).
 
 ### POST /api/auth/signup
 
@@ -350,7 +381,7 @@ mock 모드 (`ROUTE_PROVIDER=mock`):
 { "name": "길잇", "email": "user@example.com", "password": "gilit1234", "agreeTerms": true, "agreePrivacy": true }
 ```
 
-응답: `201` + 사용자 객체. 가입만 하고 로그인 세션은 만들지 않는다. 프론트는 로그인 화면으로 돌아가 이메일을 채워 둔다.
+응답: `201` + 사용자 객체 (`provider`는 `email`). 가입만 하고 로그인 세션은 만들지 않는다. 프론트는 로그인 화면으로 돌아가 이메일을 채워 둔다.
 
 ```json
 { "id": "1", "name": "길잇", "email": "user@example.com", "provider": "email" }
@@ -358,7 +389,7 @@ mock 모드 (`ROUTE_PROVIDER=mock`):
 
 DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`), `agreed_at`(= 지금)을 넣는다. 중복 검사는 먼저 조회하지 말고 INSERT에서 UNIQUE 위반(MySQL 오류 1062)을 받아 `409`로 바꾼다. 동시에 가입해도 하나만 성공한다.
 
-오류: `400` 검증 실패 (위 표의 `message`), `409` "이미 가입된 이메일입니다."
+오류: `400` 검증 실패 (위 표의 `message`), `403` 출처 검사, `409` "이미 가입된 이메일입니다.", `429` 횟수 제한 (IP별 시간당 10회. 검증에 실패한 요청은 세지 않는다)
 
 ### POST /api/auth/login
 
@@ -370,15 +401,16 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 { "email": "user@example.com", "password": "gilit1234" }
 ```
 
-응답: `200` + 세션 쿠키 + 사용자 객체. `users.last_login_at`을 지금 시각으로 갱신한다.
+응답: `200` + `gilit_session` 쿠키 + 사용자 객체 (`provider`는 `email`). `users.last_login_at`을 지금 시각으로 갱신한다. 이메일은 앞뒤 공백 제거·소문자로 비교한다.
 
-오류: `401` "이메일 또는 비밀번호가 올바르지 않습니다." 계정이 없을 때, 소셜 전용 계정(`password_hash` NULL)일 때, 비밀번호가 틀렸을 때 모두 같은 응답이다. 계정이 없거나 소셜 전용일 때도 고정된 더미 해시로 bcrypt 비교를 한 번 수행해 응답 시간으로 계정 존재가 드러나지 않게 한다.
+오류: `400` 이메일 형식 오류·비밀번호 없음 ("비밀번호를 입력해 주세요."), `403` 출처 검사, `429` 횟수 제한 (IP별·이메일별 분당 5회, 성공한 로그인도 센다).
+`401` "이메일 또는 비밀번호가 올바르지 않습니다."는 계정이 없을 때, 소셜 전용 계정(`password_hash` NULL)일 때, 비밀번호가 틀렸을 때 모두 같은 응답이다. 계정이 없거나 소셜 전용일 때도 같은 cost의 더미 해시로 bcrypt 비교를 한 번 수행해 응답 시간으로 계정 존재가 드러나지 않게 한다.
 
 ### POST /api/auth/logout
 
-로그인: 불필요 (세션이 없어도 `204`)
+로그인: 불필요 (세션이 없어도 `204`). 본문과 `Content-Type` 없이 보내도 된다.
 
-세션을 지우고 쿠키를 만료시킨다. 응답: `204` (본문 없음)
+세션을 지우고 쿠키를 만료시킨다 (`Max-Age=0`). 응답: `204` (본문 없음). 다른 출처에서 보내면 `403`이고 세션은 그대로다.
 
 ### GET /api/auth/me
 
@@ -386,7 +418,33 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 새로고침 등으로 서버 세션 기준의 로그인 상태를 확인할 때 쓴다. 응답: `200` + 사용자 객체
 
-오류: `401` "로그인이 필요합니다."
+오류: `401` "로그인이 필요합니다." (세션 없음, 만료, 모르는 토큰 모두)
+
+### 소셜 로그인 (Google, 카카오)
+
+제공자는 `google`, `kakao` 두 가지다. 서버에 설정되지 않은 제공자는 `start`가 곧바로 `auth_result=failed`로 돌려보낸다. 그 밖의 이름(`naver` 등)은 `404`.
+
+**`GET /api/auth/{provider}/start`** — 프론트는 `fetch`가 아니라 페이지 이동(`location.assign`)으로 연다.
+
+1. 서버가 state(무작위)와 PKCE verifier를 만들어 `gilit_oauth` 쿠키(HMAC-SHA256 서명, 10분)에 담는다.
+2. 제공자 인증 화면으로 `302`. Google은 PKCE(S256)와 `prompt=select_account`를 붙인다. 카카오는 공식 문서에 PKCE 파라미터가 없어 state만 쓴다 (client secret으로 토큰 교환).
+
+**`GET /api/auth/{provider}/callback`** — 제공자가 사용자를 돌려보내는 주소. 콘솔에 `{OAUTH_REDIRECT_BASE}/api/auth/{provider}/callback`(개발: `http://localhost:8000/api/auth/google/callback`, `.../kakao/callback`)으로 등록한다.
+
+1. `error=access_denied`(사용자가 취소)면 `cancelled`. 다른 `error`는 `failed`.
+2. `gilit_oauth` 쿠키의 서명·만료·제공자를 확인하고, 쿠키의 state와 쿼리의 `state`를 비교한다. 쿠키가 없거나(다른 브라우저에서 연 링크) 한 번 쓴 state면 `failed`.
+3. 인가 코드를 토큰으로 바꾸고 프로필(`sub`/`id`, 이메일, 검증 여부, 이름)을 가져온다. 실패하면 `failed`.
+4. 위 "소셜 계정 처리"대로 로그인하거나 가입한다. 세션을 만들고 `gilit_session`을 내려준다 (이전 세션은 지운다).
+5. `/pages/search.html?auth_result={결과}`로 `302`. `gilit_oauth`는 결과와 상관없이 지운다.
+
+| `auth_result` | 뜻 | 세션 | 프론트 안내 (예) |
+| --- | --- | --- | --- |
+| `success` | 로그인(또는 첫 가입) 성공 | 만듦 | 없음. `/api/auth/me` 확인 후 원래 화면으로 이동 |
+| `cancelled` | 사용자가 제공자 화면에서 취소 | 없음 | 소셜 로그인이 취소되었습니다. |
+| `email_exists` | 검증된 이메일이 다른 방법으로 가입한 계정과 같음 | 없음 | 이미 가입된 이메일입니다. 기존에 쓰던 방법으로 로그인해 주세요. |
+| `failed` | 그 밖의 모든 실패 (state 검사, 토큰 교환, 설정 없음, 서버 오류) | 없음 | 소셜 로그인에 실패했습니다. 다시 시도해 주세요. |
+
+실패 사유는 서버 로그에만 남긴다 (인가 코드·state·토큰 값은 남기지 않는다). 콜백은 `Cache-Control: no-store`다.
 
 ## 즐겨찾기 (`favorite_places`, 로그인 필요)
 
@@ -530,8 +588,9 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 | API | 필드 | DB 컬럼 |
 | --- | --- | --- |
 | 회원 | `name` | `users.nickname` |
-| 회원 | `provider` | `users.password_hash` 유무, `social_accounts.provider` |
-| 회원가입 | `agreeTerms`·`agreePrivacy` | `users.agreed_at` (동의 시각) |
+| 회원 | `provider` | `sessions.login_provider` (이번 세션의 로그인 방식) |
+| 회원가입 | `agreeTerms`·`agreePrivacy` | `users.agreed_at` (동의 시각. 소셜 가입은 가입 시각) |
+| 소셜 로그인 | 제공자 사용자 ID (Google `sub`, 카카오 `id`) | `social_accounts.provider_user_id` |
 | 즐겨찾기 | `name`, `type` | `favorite_places.place_name`, `favorite_places.label` |
 | 검색 기록 | `from`, `to`, `arriveTime` (`arrive`) | `search_history.origin_name`, `dest_name`, `arrive_at` |
 | 검색 기록 | `buffer`, `departTime`, `travelMode`, `aiSummary` | `buffer_min`, `recommended_depart_at`, `travel_mode`, `ai_summary` |
@@ -564,4 +623,10 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 - 즐겨찾기·검색 기록 응답에 `lat`·`lng`, `buffer`·`departTime`을 더할지 (지금은 mock과 같은 필드만 돌려준다. 더하면 mock도 고친다)
 - 검색 기록 저장을 프론트의 `POST /api/history` 대신 서버가 `GET /api/routes` 처리 중에 직접 할지
 - `aiSummary`를 `/api/routes`에 포함할지, 별도 API로 분리할지
-- 소셜 로그인(OAuth 콜백) 엔드포인트 경로
+
+### 정해진 항목 (회원)
+
+- 소셜 로그인 경로: `GET /api/auth/{google|kakao}/start`, `/callback` (위 "소셜 로그인"). 프론트 `SOCIAL_AUTH_START_URLS`에 `start` 경로를 넣는다.
+- 소셜 로그인 결과: `/pages/search.html?auth_result=success|cancelled|email_exists|failed`
+- 같은 이메일의 소셜 계정은 자동 연결하지 않는다 (`email_exists`).
+- 소셜 가입의 약관 동의: 로그인 모달 안내 문구를 동의로 보고 `agreed_at`에 가입 시각을 넣는다.

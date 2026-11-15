@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
-from app.auth.oauth import GoogleOAuthClient, MockOAuthClient, OAuthClient
+from app.auth.oauth import GoogleOAuthClient, KakaoOAuthClient, MockOAuthClient, OAuthClient
 from app.auth.service import AUTH_STORES
 from app.db import MySQLConfig
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
@@ -41,7 +41,7 @@ class Settings:
     route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
     auth_store: str = "memory"  # 회원·세션 저장소. memory(재시작하면 사라짐) | mysql
     cookie_secure: bool = True  # 세션 쿠키의 Secure 속성. 로컬 http에서 쿠키가 안 실리면 false
-    secret_key: str | None = field(default=None, repr=False)  # 서명용 비밀 값 (3단계 OAuth state 쿠키)
+    secret_key: str | None = field(default=None, repr=False)  # 서명용 비밀 값 (OAuth state 쿠키)
     # MySQL 접속 정보. 로컬 MySQL과 RDS는 이 값만 다르다. 코드에 기본 호스트·계정을 두지 않는다.
     db_host: str | None = None
     db_port: int = 3306
@@ -49,9 +49,12 @@ class Settings:
     db_user: str | None = None
     db_password: str | None = field(default=None, repr=False)
     db_ssl_ca: str | None = None  # RDS CA 번들 경로. 주면 TLS로 연결한다
-    # 소셜 로그인 (3단계 Google). 콜백 주소는 {oauth_redirect_base}/api/auth/{provider}/callback
+    # 소셜 로그인. 콜백 주소는 {oauth_redirect_base}/api/auth/{provider}/callback
     google_client_id: str | None = None
     google_client_secret: str | None = field(default=None, repr=False)
+    # 카카오 로그인은 길찾기용 KAKAO_REST_API_KEY와 따로 받는다 (같은 앱의 REST API 키를 넣어도 된다)
+    kakao_login_client_id: str | None = None
+    kakao_login_client_secret: str | None = field(default=None, repr=False)
     oauth_redirect_base: str | None = None  # 예: http://localhost:8000. 제공자 콘솔에 등록한 주소와 같아야 한다
     oauth_mock: bool = False  # 외부 호출 없는 가짜 소셜 로그인. AUTH_STORE=memory에서만 쓸 수 있다
 
@@ -81,6 +84,8 @@ class Settings:
             db_ssl_ca=env.get("DB_SSL_CA", "").strip() or None,
             google_client_id=env.get("GOOGLE_CLIENT_ID", "").strip() or None,
             google_client_secret=env.get("GOOGLE_CLIENT_SECRET", "").strip() or None,
+            kakao_login_client_id=env.get("KAKAO_LOGIN_CLIENT_ID", "").strip() or None,
+            kakao_login_client_secret=env.get("KAKAO_LOGIN_CLIENT_SECRET", "").strip() or None,
             oauth_redirect_base=_redirect_base_env(env),
             oauth_mock=_bool_env(env, "OAUTH_MOCK", cls.oauth_mock),
         )
@@ -136,20 +141,26 @@ def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:
             raise ValueError("OAUTH_MOCK은 AUTH_STORE=memory일 때만 쓸 수 있습니다 (가짜 계정이 DB에 남지 않게).")
         if not settings.secret_key:
             raise ValueError("OAUTH_MOCK에도 SECRET_KEY 환경변수가 필요합니다 (state 쿠키 서명).")
-        return {"google": MockOAuthClient("google")}
+        return {provider: MockOAuthClient(provider) for provider in ("google", "kakao")}
 
     clients: dict[str, OAuthClient] = {}
-    if settings.google_client_id or settings.google_client_secret:
+    providers = (
+        ("google", "Google", "GOOGLE_CLIENT_ID", settings.google_client_id, "GOOGLE_CLIENT_SECRET", settings.google_client_secret, GoogleOAuthClient),
+        ("kakao", "카카오", "KAKAO_LOGIN_CLIENT_ID", settings.kakao_login_client_id, "KAKAO_LOGIN_CLIENT_SECRET", settings.kakao_login_client_secret, KakaoOAuthClient),
+    )
+    for provider, label, id_name, client_id, secret_name, client_secret, client_class in providers:
+        if not (client_id or client_secret):
+            continue
         required = {
-            "GOOGLE_CLIENT_ID": settings.google_client_id,
-            "GOOGLE_CLIENT_SECRET": settings.google_client_secret,
+            id_name: client_id,
+            secret_name: client_secret,
             "SECRET_KEY": settings.secret_key,
             "OAUTH_REDIRECT_BASE": settings.oauth_redirect_base,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
-            raise ValueError(f"Google 로그인에는 {', '.join(missing)} 환경변수가 필요합니다.")
-        clients["google"] = GoogleOAuthClient(settings.google_client_id, settings.google_client_secret)
+            raise ValueError(f"{label} 로그인에는 {', '.join(missing)} 환경변수가 필요합니다.")
+        clients[provider] = client_class(client_id, client_secret)
     return clients
 
 

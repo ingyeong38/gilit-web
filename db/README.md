@@ -94,7 +94,8 @@ erDiagram
 - `password_hash`: bcrypt(cost 12 이상) 해시. 소셜로만 가입한 사용자는 NULL이다. 평문 비밀번호는 어디에도 저장하지 않는다.
 - `agreed_at`: 필수 약관(이용약관·개인정보 처리방침)에 동의한 시각
 - `last_login_at`: 로그인할 때마다 갱신한다 (이메일·소셜 공통)
-- 가입 방법은 컬럼으로 따로 두지 않는다. `password_hash`가 있으면 이메일 가입, 없으면 `social_accounts`의 제공자로 판단한다.
+- 가입 방법은 컬럼으로 따로 두지 않는다. `password_hash`가 있으면 이메일 가입, 없으면 `social_accounts`의 제공자로 판단한다. API 응답의 `provider`는 가입 방법이 아니라 이번 세션의 로그인 방식(`sessions.login_provider`)이다.
+- 소셜 첫 로그인으로 가입할 때 `users`와 `social_accounts`를 한 트랜잭션으로 넣는다. `email`에는 제공자가 검증했다고 알려 준 이메일만 넣고(아니면 NULL), 그 이메일이 이미 있으면 계정을 만들지 않는다 (자동 연결 없음, `docs/api-spec.md` "소셜 계정 처리").
 
 ### social_accounts
 
@@ -199,7 +200,7 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
      mysql -u root -p --default-character-set=utf8mb4 gilit_test -e "source db/schema.sql"
      ```
 
-   - **2단계 이전에 `schema.sql`로 만든 DB**: `migrations/`를 번호 순서대로 실행한다. 다시 실행해도 된다.
+   - **`migrations/` 001·002 이전의 `schema.sql`로 이미 만든 DB** (`sessions` 테이블이 없는 DB): `migrations/`를 번호 순서대로 실행한다. 다시 실행해도 된다.
 
      ```bash
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/001_users_email_nullable.sql"
@@ -248,7 +249,7 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
    ```
 
    PowerShell은 `<` 리디렉션이 안 되므로 `mysql ... gilit -e "source db/schema.sql"`을 쓰거나, MySQL Workbench에서 파일을 열어 실행한다.
-   2단계 이전에 만든 RDS라면 `schema.sql` 대신 `migrations/`를 번호 순서대로 실행한다.
+   `migrations/` 001·002 이전의 `schema.sql`로 이미 만든 RDS라면 `schema.sql` 대신 `migrations/`를 번호 순서대로 실행한다.
 
 4. 서버의 `.env`를 RDS 값으로 바꾼다. 코드는 바꾸지 않는다.
 
@@ -260,6 +261,7 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
    DB_PASSWORD=<비밀번호>
    DB_SSL_CA=<RDS CA 번들 경로>   # TLS 연결 (AWS의 global-bundle.pem)
    COOKIE_SECURE=true
+   OAUTH_REDIRECT_BASE=https://<서비스 도메인>   # 소셜 로그인 콜백. Google·카카오 콘솔에도 같은 주소를 등록한다
    ```
 
 5. 확인한다.

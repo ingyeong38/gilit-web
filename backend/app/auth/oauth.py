@@ -1,6 +1,6 @@
-"""소셜 로그인 제공자 (OAuth 2.0 인가 코드 + PKCE).
+"""소셜 로그인 제공자 (OAuth 2.0 인가 코드. Google은 PKCE S256, 카카오는 state만 — KakaoOAuthClient 참고).
 
-OAuthClient 인터페이스 하나로 제공자를 붙인다. Google은 여기, 카카오는 4단계에서 같은 구조로 추가한다.
+OAuthClient 인터페이스 하나로 제공자를 붙인다 (GoogleOAuthClient, KakaoOAuthClient, 개발용 MockOAuthClient).
 웹 흐름(state 쿠키, 콜백, 계정 처리)은 제공자와 무관하다 (app/api/oauth.py, AuthService.social_login).
 
 비밀 값(client secret, 인가 코드, 토큰)은 예외 메시지와 로그에 넣지 않는다.
@@ -92,7 +92,8 @@ class GoogleOAuthClient:
         return f"{self.AUTHORIZE_URL}?{urlencode(params)}"
 
     def fetch_profile(self, code: str, code_verifier: str, redirect_uri: str) -> OAuthProfile:
-        token = self._post_json(
+        token = _post_form(
+            self._session,
             self.TOKEN_URL,
             {
                 "grant_type": "authorization_code",
@@ -102,12 +103,9 @@ class GoogleOAuthClient:
                 "redirect_uri": redirect_uri,
                 "code_verifier": code_verifier,
             },
-            "토큰 교환",
+            "Google 토큰 교환",
         )
-        access_token = token.get("access_token")
-        if not isinstance(access_token, str) or not access_token:
-            raise OAuthError("Google 토큰 응답에 access_token이 없습니다.")
-        info = self._get_json(self.USERINFO_URL, access_token, "프로필 조회")
+        info = _get_bearer(self._session, self.USERINFO_URL, _access_token(token, "Google"), "Google 프로필 조회")
         subject = info.get("sub")
         if not isinstance(subject, str) or not subject:
             raise OAuthError("Google 프로필에 sub가 없습니다.")
@@ -120,19 +118,109 @@ class GoogleOAuthClient:
             name=info.get("name") if isinstance(info.get("name"), str) else None,
         )
 
-    def _post_json(self, url: str, data: dict, step: str) -> dict:
-        try:
-            response = self._session.post(url, data=data, timeout=HTTP_TIMEOUT_SEC)
-        except requests.RequestException as error:
-            raise OAuthError(f"Google {step} 연결 실패: {type(error).__name__}") from None
-        return _json_or_error(response, f"Google {step}")
 
-    def _get_json(self, url: str, access_token: str, step: str) -> dict:
-        try:
-            response = self._session.get(url, headers={"Authorization": f"Bearer {access_token}"}, timeout=HTTP_TIMEOUT_SEC)
-        except requests.RequestException as error:
-            raise OAuthError(f"Google {step} 연결 실패: {type(error).__name__}") from None
-        return _json_or_error(response, f"Google {step}")
+# --- 카카오 ---
+
+
+class KakaoOAuthClient:
+    """카카오 로그인 (REST API).
+
+    PKCE는 쓰지 않는다. 카카오 로그인 REST API 문서(developers.kakao.com/docs/latest/ko/kakaologin/rest-api,
+    2026-11 확인)의 인가 코드 받기에 code_challenge·code_challenge_method가 없고, 토큰 받기에도 code_verifier가
+    없다. 문서에 없는 파라미터는 무시되거나 오류가 날 수 있어 보내지 않는다. 대신 state 서명 쿠키 검사(공용 흐름)와
+    client_secret(카카오 기본값 [ON]이면 필수)으로 인가 코드 가로채기·로그인 CSRF를 막는다.
+    공용 흐름은 PKCE 값을 넘겨주지만 이 클라이언트는 받기만 하고 쓰지 않는다.
+    """
+
+    provider = "kakao"
+    AUTHORIZE_URL = "https://kauth.kakao.com/oauth/authorize"
+    TOKEN_URL = "https://kauth.kakao.com/oauth/token"
+    USER_URL = "https://kapi.kakao.com/v2/user/me"
+    FORM = "application/x-www-form-urlencoded;charset=utf-8"  # 카카오 문서가 요구하는 Content-Type
+
+    def __init__(self, client_id: str, client_secret: str, session: requests.Session | None = None) -> None:
+        self.client_id = client_id  # 카카오 앱의 REST API 키
+        self._client_secret = client_secret
+        self._session = session or requests.Session()
+
+    def __repr__(self) -> str:
+        return "KakaoOAuthClient()"
+
+    def authorization_url(self, state: str, code_challenge: str, redirect_uri: str) -> str:
+        # code_challenge는 쓰지 않는다 (위 설명). 동의항목은 카카오 콘솔 설정을 따르므로 scope도 보내지 않는다.
+        params = {"response_type": "code", "client_id": self.client_id, "redirect_uri": redirect_uri, "state": state}
+        return f"{self.AUTHORIZE_URL}?{urlencode(params)}"
+
+    def fetch_profile(self, code: str, code_verifier: str, redirect_uri: str) -> OAuthProfile:
+        token = _post_form(
+            self._session,
+            self.TOKEN_URL,
+            {
+                "grant_type": "authorization_code",
+                "client_id": self.client_id,
+                "client_secret": self._client_secret,
+                "redirect_uri": redirect_uri,
+                "code": code,
+            },
+            "카카오 토큰 교환",
+            headers={"Content-Type": self.FORM},
+        )
+        info = _get_bearer(
+            self._session, self.USER_URL, _access_token(token, "카카오"), "카카오 프로필 조회", headers={"Content-Type": self.FORM}
+        )
+        return self.profile_from(info)
+
+    @classmethod
+    def profile_from(cls, info: dict) -> OAuthProfile:
+        """/v2/user/me 응답을 프로필로 바꾼다.
+
+        - id(Long, 회원번호)를 provider_user_id로 쓴다.
+        - 이메일은 is_email_valid와 is_email_verified가 모두 참일 때만 검증된 것으로 본다. is_email_valid=false는
+          다른 카카오계정이 그 이메일을 가져가 만료된 경우다.
+        - 닉네임은 kakao_account.profile.nickname. properties.nickname은 카카오가 폐기 예정으로 공지해 쓰지 않는다.
+        """
+        subject = info.get("id")
+        if isinstance(subject, bool) or not isinstance(subject, (int, str)) or not str(subject).strip():
+            raise OAuthError("카카오 프로필에 회원번호(id)가 없습니다.")
+        account = info.get("kakao_account") if isinstance(info.get("kakao_account"), dict) else {}
+        profile = account.get("profile") if isinstance(account.get("profile"), dict) else {}
+        email = account.get("email") if isinstance(account.get("email"), str) else None
+        verified = account.get("is_email_valid") is True and account.get("is_email_verified") is True
+        nickname = profile.get("nickname") if isinstance(profile.get("nickname"), str) else None
+        return OAuthProfile(
+            provider=cls.provider, subject=str(subject).strip(), email=email, email_verified=verified, name=nickname
+        )
+
+
+# --- 공용 HTTP ---
+
+
+def _post_form(session, url: str, data: dict, step: str, headers: dict | None = None) -> dict:
+    kwargs = {"data": data, "timeout": HTTP_TIMEOUT_SEC}
+    if headers:
+        kwargs["headers"] = headers
+    try:
+        response = session.post(url, **kwargs)
+    except requests.RequestException as error:
+        raise OAuthError(f"{step} 연결 실패: {type(error).__name__}") from None
+    return _json_or_error(response, step)
+
+
+def _get_bearer(session, url: str, access_token: str, step: str, headers: dict | None = None) -> dict:
+    try:
+        response = session.get(
+            url, headers={"Authorization": f"Bearer {access_token}", **(headers or {})}, timeout=HTTP_TIMEOUT_SEC
+        )
+    except requests.RequestException as error:
+        raise OAuthError(f"{step} 연결 실패: {type(error).__name__}") from None
+    return _json_or_error(response, step)
+
+
+def _access_token(token: dict, label: str) -> str:
+    access_token = token.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
+        raise OAuthError(f"{label} 토큰 응답에 access_token이 없습니다.")
+    return access_token
 
 
 def _json_or_error(response, step: str) -> dict:
@@ -159,15 +247,20 @@ MOCK_CODE = "mock-code"
 
 
 class MockOAuthClient:
-    """외부 호출 없이 소셜 로그인 흐름을 시험한다. start가 곧바로 콜백으로 보내고 고정 프로필을 돌려준다."""
+    """외부 호출 없이 소셜 로그인 흐름을 시험한다. start가 곧바로 콜백으로 보내고 고정 프로필을 돌려준다.
+
+    google은 검증된 이메일이 있는 프로필, kakao는 이메일 없는 프로필이다 (카카오는 이메일 동의를 받지 않는 경우가
+    흔해서 개발 중에도 email NULL 가입 경로를 지나가게 한다).
+    """
 
     def __init__(self, provider: str) -> None:
         self.provider = provider
+        has_email = provider != "kakao"
         self.profile = OAuthProfile(
             provider=provider,
             subject=f"mock-{provider}-user",
-            email=f"mock.{provider}@example.com",
-            email_verified=True,
+            email=f"mock.{provider}@example.com" if has_email else None,
+            email_verified=has_email,
             name=f"Mock {provider} 사용자",
         )
 
