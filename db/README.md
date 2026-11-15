@@ -137,12 +137,16 @@ erDiagram
 
 ### search_history
 
-길찾기 검색 기록. 비로그인 검색도 `user_id` NULL로 남겨 인기 출발지·목적지와 검색 수 통계에 쓴다. 회원이 탈퇴하면 기록은 남기고 `user_id`만 NULL이 된다 (`ON DELETE SET NULL`).
+길찾기 검색 기록. 사용자의 "최근 검색"이면서 이용 통계(검색 수, 인기 출발지·목적지)의 원본이다. 그래서 **행을 고치거나 지우지 않고 쌓기만 한다.**
 
+- 저장: 서버가 `GET /api/routes`가 성공했을 때 저장한다 (`backend/app/history/recording.py`). 비로그인 검색은 `user_id` NULL. 로그인 사용자의 같은 검색은 5분 안에 다시 저장하지 않는다.
+- 사용자 화면의 "같은 검색" 묶기와 삭제는 서버가 한다. 삭제(내 기록에서 지우기)와 탈퇴는 모두 `user_id`를 NULL로 바꾸는 분리라 통계 행은 남는다 (`ON DELETE SET NULL`과 같은 결과).
+- 사용자에게 연결된 행은 최근 200개까지만 유지하고, 넘으면 오래된 것부터 분리한다 (조회 비용을 일정하게).
+- **개인정보:** `user_id`가 NULL인 행은 식별자 없는 통계 데이터다. 저장하는 값은 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간, 권장 출발 시각, 이동수단, 저장 시각이고, IP·쿠키·기기 정보는 저장하지 않는다.
 - `arrive_at`: 도착 희망 시각, `buffer_min`: 여유 시간(분, 0 이상)
-- `recommended_depart_at`: 추천 경로의 권장 출발 시각
+- `recommended_depart_at`: 추천 경로의 권장 출발 시각 (추천 카드가 없던 검색은 NULL)
 - `travel_mode`: `car` 또는 `transit` (CHECK 제약). 지금 서비스는 `car`만 쓴다.
-- `ai_summary`: AI 경로 추천 요약 문구
+- `ai_summary`: AI 경로 추천 요약 문구 (아직 저장하지 않아 NULL)
 
 ### visit_logs
 
