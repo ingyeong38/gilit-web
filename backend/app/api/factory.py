@@ -7,17 +7,36 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth as auth_api
 from app.api import departure, health, routes
+from app.api import favorites as favorites_api
 from app.api import oauth as oauth_api
 from app.api.errors import install_error_handlers
 from app.api.origin import install_origin_check
+from app.api.routes import resolve_place
 from app.auth import AuthService, create_auth_service
 from app.auth.oauth import OAuthClient
 from app.auth.oauth_state import UsedStates
 from app.config import Settings, create_oauth_clients, create_route_provider, load_env_files
+from app.departure import DepartureError, DepartureSolver, RouteProvider
+from app.favorites import Coordinates, FavoriteService, create_favorite_store
+from app.routing import RouteResultCache
 
 logger = logging.getLogger("app.api")
-from app.departure import DepartureSolver, RouteProvider
-from app.routing import RouteResultCache
+
+
+def place_locator(provider: RouteProvider) -> Callable[[str], Coordinates | None]:
+    """즐겨찾기 좌표 찾기. 장소 검색 결과가 정확히 하나일 때만 좌표를 준다 (경로 API의 resolve_place와 같은 규칙).
+
+    못 찾음·여러 개·mock 모드(장소 검색 없음)는 None. 길찾기 API 장애(RouteProviderError)는 그대로 올린다.
+    """
+
+    def locate(query: str) -> Coordinates | None:
+        try:
+            found = resolve_place(provider, query)
+        except DepartureError:
+            return None
+        return Coordinates(found.lat, found.lng)
+
+    return locate
 
 
 def create_app(
@@ -26,20 +45,34 @@ def create_app(
     clock: Callable[[], datetime] | None = None,
     auth: AuthService | None = None,
     oauth_clients: dict[str, OAuthClient] | None = None,
+    favorites: FavoriteService | None = None,
 ) -> FastAPI:
     """FastAPI 앱을 만든다. settings를 주지 않으면 .env와 환경변수에서 읽는다.
 
-    RouteProvider, AuthService, 소셜 로그인 클라이언트는 여기서 한 번만 만든다. 카카오 어댑터의 캐시와 HTTP 세션,
-    회원 저장소를 모든 요청이 함께 쓴다. 테스트는 settings, provider, clock, auth, oauth_clients를 직접 넣는다.
+    RouteProvider, DB 연결 풀, 저장소(회원·즐겨찾기), 소셜 로그인 클라이언트는 여기서 한 번만 만든다.
+    AUTH_STORE=mysql이면 연결 풀 하나를 모든 저장소가 함께 쓴다 (app.state.db_pool). 풀은 처음 쓸 때 연결한다.
+    테스트는 settings, provider, clock, auth, oauth_clients, favorites를 직접 넣는다.
     """
     if settings is None:
         load_env_files()
         settings = Settings.from_env()
     if provider is None:
         provider = create_route_provider(settings)
+
+    pool = None
+    if settings.auth_store == "mysql" and (auth is None or favorites is None):
+        from app.db import ConnectionPool  # pymysql은 mysql을 쓸 때만 불러온다
+
+        pool = ConnectionPool(settings.mysql_config())
     if auth is None:
-        mysql = settings.mysql_config() if settings.auth_store == "mysql" else None
-        auth = create_auth_service(settings.auth_store, clock=clock, mysql=mysql)
+        auth = create_auth_service(settings.auth_store, clock=clock, pool=pool)
+    if favorites is None:
+        store = create_favorite_store(settings.auth_store, pool)
+        if store is None:
+            logger.warning("AUTH_STORE=%s용 즐겨찾기 저장소가 아직 없습니다. 즐겨찾기 API는 503을 돌려줍니다.", settings.auth_store)
+        else:
+            favorites = FavoriteService(store, locate=place_locator(provider), clock=clock)
+
     if oauth_clients is None:
         oauth_clients = create_oauth_clients(settings)
     if oauth_clients and not settings.secret_key:
@@ -56,7 +89,9 @@ def create_app(
     app.state.settings = settings
     app.state.provider = provider
     app.state.solver = DepartureSolver(provider, settings.solver_config(), clock=clock)
+    app.state.db_pool = pool
     app.state.auth = auth
+    app.state.favorites = favorites
     app.state.oauth_clients = oauth_clients
     app.state.oauth_used_states = UsedStates()
 
@@ -74,6 +109,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(auth_api.router)
     app.include_router(oauth_api.router)
+    app.include_router(favorites_api.router)
     app.include_router(departure.router)
     app.include_router(routes.router)
     return app

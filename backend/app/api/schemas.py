@@ -14,6 +14,17 @@ class ErrorResponse(BaseModel):
     message: str = Field(description="사용자에게 그대로 보여 줄 수 있는 한국어 문장")
 
 
+class FavoriteResponse(BaseModel):
+    """즐겨찾기 하나 (docs/api-spec.md "즐겨찾기"). 프론트 목업(favorites.json)의 필드에 좌표를 더했다."""
+
+    id: str = Field(description="즐겨찾기 id. DB BIGINT를 문자열로", examples=["1"])
+    name: str = Field(description="별칭 (place_name)", examples=["집"])
+    address: str | None = Field(description="주소. 없을 수 있다", examples=["경상남도 김해시 내외중앙로 47"])
+    type: Literal["집", "학교", "회사", "기타"] = Field(description="분류 (label)")
+    lat: float = Field(description="위도", examples=[35.2285])
+    lng: float = Field(description="경도", examples=[128.8894])
+
+
 class UserResponse(BaseModel):
     """회원 API가 돌려주는 사용자 객체 (docs/api-spec.md "사용자 객체")."""
 

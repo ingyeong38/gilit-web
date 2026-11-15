@@ -16,6 +16,7 @@ import pytest
 from dotenv import dotenv_values
 
 from app.auth import MemorySessionStore, MemoryUserStore, User
+from app.favorites import MemoryFavoriteStore
 from app.config import ENV_FILES
 from app.db import ConnectionPool, MySQLConfig, to_db
 from app.departure import KST
@@ -71,6 +72,7 @@ class MemoryBackend:
     def __init__(self) -> None:
         self.users = MemoryUserStore()
         self.sessions = MemorySessionStore()
+        self.favorites = MemoryFavoriteStore()
 
     def add_social_only_user(self, email: str | None, nickname: str) -> User:
         return self.users.add_user(User(id=0, email=email, nickname=nickname, agreed_at=datetime.now(KST)))
