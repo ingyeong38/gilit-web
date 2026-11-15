@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
-  <link rel="stylesheet" href="/css/pages/result.css" />
+  <link rel="stylesheet" href="/css/pages/result.css?v=card530-20261114-6" />
 </head>
-<body>
+<body class="duration-result-page">
   <div class="app">
     <header class="header" id="site-header"></header>
     <div class="page-transition">
@@ -36,7 +36,7 @@
             <div class="route-list" id="route-list"></div>
             <div class="result-detail">
               <div class="map" id="route-map"></div>
-              <section class="chart-card" id="duration-chart"></section>
+              <section class="chart-card" id="duration-chart" aria-label="출발시각별 예상 소요시간" aria-busy="true"><p role="status">소요시간 그래프를 준비하고 있습니다.</p></section>
               <section class="ai-card">
                 <span class="ai-icon"><i data-icon="spark" data-size="24"></i></span>
                 <div><div class="ai-label">AI 경로 추천 요약</div><div class="ai-title" id="ai-title"></div><p id="ai-text"></p></div>
@@ -49,6 +49,6 @@
   </div>
 
   <script type="module" src="/js/components/header.js"></script>
-  <script type="module" src="/js/pages/result.js"></script>
+  <script type="module" src="/js/pages/result.js?v=card530-20261114-6"></script>
 </body>
 </html>
