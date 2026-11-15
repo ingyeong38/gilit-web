@@ -1,11 +1,20 @@
-"""검색 기록 서비스. 조회·분리 API가 쓴다. 저장(경로 검색 성공 때 자동)은 4단계에서 연결한다."""
+"""검색 기록 서비스. 조회·분리 API와 경로 검색 자동 저장(record_search)이 쓴다."""
 
 from collections.abc import Callable
 from datetime import datetime
 
 from app.departure import KST
 from app.history.errors import LIMIT_INVALID, NOT_FOUND, HistoryError
-from app.history.models import DEFAULT_LIMIT, MAX_LIMIT, HistoryDraft, HistoryEntry
+from app.history.models import (
+    DEFAULT_LIMIT,
+    MAX_ATTACHED_ROWS,
+    MAX_LIMIT,
+    HistoryDraft,
+    HistoryEntry,
+    entry_key,
+    search_key,
+)
+from app.history.recording import DEDUP_WINDOW
 from app.history.stores import HistoryStore
 
 
@@ -45,8 +54,23 @@ class HistoryService:
         return self.store.delete_all(user_id)
 
     def add(self, user_id: int | None, draft: HistoryDraft) -> HistoryEntry:
-        """한 행 저장 (4단계에서 GET /api/routes가 부른다. 지금은 테스트·스크립트용)."""
+        """한 행을 그대로 저장한다 (5분 규칙 없음. 테스트·스크립트용)."""
         return self.store.add(user_id, draft, self._clock())
+
+    def record_search(self, user_id: int | None, draft: HistoryDraft) -> HistoryEntry | None:
+        """경로 검색 하나를 기록한다 (GET /api/routes 성공 뒤). 저장하지 않았으면 None.
+
+        로그인 사용자가 같은 검색(조회 때 묶는 키)을 DEDUP_WINDOW(5분) 안에 했으면 저장하지 않는다.
+        비로그인(user_id None)은 같은 사람인지 알 수 없으므로 항상 저장한다 (통계용).
+        """
+        now = self._clock()
+        if user_id is not None:
+            key = search_key(draft.origin_name, draft.dest_name, draft.arrive_at)
+            # 묶은 목록에서 같은 키의 대표(가장 최근) 행을 찾는다. 연결된 행은 최대 MAX_ATTACHED_ROWS개다.
+            latest = next((e for e in self.store.list(user_id, MAX_ATTACHED_ROWS) if entry_key(e) == key), None)
+            if latest is not None and now - latest.created_at < DEDUP_WINDOW:
+                return None
+        return self.store.add(user_id, draft, now)
 
 
 def create_history_store(store: str, pool=None) -> HistoryStore | None:
