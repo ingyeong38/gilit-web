@@ -70,25 +70,33 @@ class RouteResultCache:
         self.items, self.lock = OrderedDict(), Lock()
 
     def get(self, key, now):
+        routes, _ = self.get_with_meta(key, now)
+        return routes
+
+    def get_with_meta(self, key, now):
+        """(카드 목록, put에 함께 준 meta). 없거나 만료면 (None, None).
+
+        meta는 응답이 아니라 서버가 함께 기억할 값이다 (경로 계산에 쓴 출발지·목적지 좌표 → 검색 기록 저장).
+        """
         from copy import deepcopy
         from datetime import datetime
         with self.lock:
             item = self.items.get(key)
             if item is None:
-                return None
-            routes, expiry = item
+                return None, None
+            routes, expiry, meta = item
             if self.monotonic() >= expiry or any(datetime.fromisoformat(route["departTime"]) <= now for route in routes):
                 del self.items[key]
-                return None
+                return None, None
             self.items.move_to_end(key)
-            return deepcopy(routes)
+            return deepcopy(routes), meta
 
-    def put(self, key, routes):
+    def put(self, key, routes, meta=None):
         from copy import deepcopy
         if self.ttl <= 0 or sum(len(route["path"]) for route in routes) > 20000:
             return
         with self.lock:
-            self.items[key] = (deepcopy(routes), self.monotonic() + self.ttl)
+            self.items[key] = (deepcopy(routes), self.monotonic() + self.ttl, meta)
             self.items.move_to_end(key)
             while len(self.items) > self.max_entries:
                 self.items.popitem(last=False)

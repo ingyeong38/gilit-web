@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.auth.errors import AuthError
+from app.favorites.errors import FavoriteError
+from app.history.errors import HistoryError
 from app.departure import (
     ArrivalTimePassedError,
     DepartureError,
@@ -147,6 +149,15 @@ async def handle_auth_error(request: Request, error: AuthError) -> JSONResponse:
     return JSONResponse(status_code=error.status, content={"message": error.message}, headers=error.headers)
 
 
+async def handle_favorite_error(request: Request, error: FavoriteError) -> JSONResponse:
+    # 즐겨찾기 문구는 app/favorites/errors.py에서 정한 사용자용 문장이다. 그대로 보낸다.
+    return _message(error.status, error.message)
+
+
+async def handle_history_error(request: Request, error: HistoryError) -> JSONResponse:
+    return _message(error.status, error.message)
+
+
 async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     logger.exception("처리하지 못한 오류: %s %s", request.method, request.url.path)
     return _message(500, INTERNAL_ERROR_MESSAGE)
@@ -155,6 +166,8 @@ async def handle_unexpected_error(request: Request, error: Exception) -> JSONRes
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, handle_validation_error)
     app.add_exception_handler(AuthError, handle_auth_error)
+    app.add_exception_handler(FavoriteError, handle_favorite_error)
+    app.add_exception_handler(HistoryError, handle_history_error)
     app.add_exception_handler(DepartureError, handle_departure_error)
     app.add_exception_handler(RouteProviderError, handle_route_provider_error)
     app.add_exception_handler(StarletteHTTPException, handle_http_error)

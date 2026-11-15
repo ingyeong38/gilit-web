@@ -17,12 +17,13 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | GET | `/api/auth/me` | 내 정보 (**구현됨**) | **필요** | `getSessionUser` | sessionStorage (`gilit:mock:session`) |
 | GET | `/api/auth/{google\|kakao}/start` | 소셜 로그인 시작, 제공자 화면으로 302 (**구현됨**) | 불필요 | `getSocialLoginUrl` (페이지 이동) | 없음 |
 | GET | `/api/auth/{google\|kakao}/callback` | 소셜 로그인 콜백, 프론트로 302 (**구현됨**) | 불필요 | 제공자가 부름 | 없음 |
-| GET | `/api/favorites` | 즐겨찾기 목록 | **필요** | `getFavorites` | `favorites.json` |
-| POST | `/api/favorites` | 즐겨찾기 추가 | **필요** | `addFavorite` | localStorage |
-| PATCH | `/api/favorites?id=` | 즐겨찾기 수정 | **필요** | 없음 | - |
-| DELETE | `/api/favorites?id=` | 즐겨찾기 삭제 | **필요** | `removeFavorite` | localStorage |
-| GET | `/api/history` | 내 검색 기록 | **필요** | `getHistory` | `history.json` |
-| POST | `/api/history` | 검색 기록 저장 | 불필요 | 없음 | - |
+| GET | `/api/favorites` | 즐겨찾기 목록 (**구현됨**) | **필요** | `getFavorites` | `favorites.json` |
+| POST | `/api/favorites` | 즐겨찾기 추가 (**구현됨**) | **필요** | `addFavorite` | localStorage |
+| PATCH | `/api/favorites?id=` | 즐겨찾기 수정 (**구현됨**) | **필요** | 없음 | - |
+| DELETE | `/api/favorites?id=` | 즐겨찾기 삭제 (**구현됨**) | **필요** | `removeFavorite` | localStorage |
+| GET | `/api/history?limit=` | 내 검색 기록 (**구현됨**) | **필요** | `getHistory` | `history.json` |
+| DELETE | `/api/history?id=` | 검색 기록 카드 한 장 삭제 (**구현됨**) | **필요** | 없음 | - |
+| DELETE | `/api/history` | 내 검색 기록 전체 삭제 (**구현됨**) | **필요** | 없음 | - |
 | GET | `/api/stats` | 이용 통계 | **필요** | `getStats` | `stats.json` |
 | POST | `/api/visit` | 방문 로그 기록 | 불필요 | 없음 | - |
 | GET | `/health` | 서버 상태 확인 (**구현됨**) | 불필요 | - | - |
@@ -198,7 +199,7 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 
 - 카카오 어댑터는 서버를 띄울 때 하나만 만들어 모든 요청이 함께 쓴다. 같은 (출발지, 목적지, 출발시각(분), 이동수단) 조회는 메모리 캐시로 다시 부르지 않고, 캐시는 `ROUTE_CACHE_TTL_SEC`(기본 600초)이 지나면 버린다.
 - 카카오 일일 쿼터는 5,000건이다. 요청 하나당 최대 8회라 하루 약 625회 계산까지 된다.
-- 이 API는 `search_history`에 저장하지 않는다. 기록 저장은 `POST /api/history`다 (DB 연결 후 구현).
+- 이 API는 `search_history`에 저장하지 않는다. 검색 기록은 `GET /api/routes`가 성공했을 때 서버가 저장한다 (아래 "검색 기록").
 
 ### GET /health (구현됨)
 
@@ -446,96 +447,119 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 실패 사유는 서버 로그에만 남긴다 (인가 코드·state·토큰 값은 남기지 않는다). 콜백은 `Cache-Control: no-store`다.
 
-## 즐겨찾기 (`favorite_places`, 로그인 필요)
+## 즐겨찾기 (`favorite_places`, 로그인 필요, **구현됨**)
 
-모든 즐겨찾기 API는 세션의 사용자 것만 다룬다. 세션이 없으면 `401`, 다른 사용자의 `id`는 `404`다.
+모든 즐겨찾기 API는 로그인이 필요하고(`require_user`) 세션 사용자의 것만 다룬다. 쿼리는 언제나 `WHERE id = ? AND user_id = ?`다.
 
-필드 매핑: `name` = `place_name`, `type` = `label`, `address` = `address`, `lat`·`lng` = 같은 이름. `type`은 `집`, `학교`, `회사`, `기타` 중 하나다.
+- `401` "로그인이 필요합니다.": 세션 없음·만료. 프론트는 비로그인이면 **호출하지 않는다** (홈 화면 포함).
+- `404` "찾을 수 없습니다.": `id`가 없거나, 숫자가 아니거나(`abc`, `-1`, `1.0`), 남의 것이거나, 이미 지운 것. 남의 데이터가 있는지 드러내지 않으려고 모두 같은 응답이다.
+- `409`: "이미 같은 이름의 즐겨찾기가 있습니다." 또는 "즐겨찾기는 최대 20개까지 저장할 수 있습니다."
+
+필드 매핑: `name` = `place_name`(사용자가 붙인 별칭), `type` = `label`, `address` = `address`, `lat`·`lng` = 같은 이름. `id`는 문자열.
+
+| 필드 | 규칙 (서버가 직접 검사, 실패하면 `400`) | 오류 `message` |
+| --- | --- | --- |
+| `name` | 앞뒤 공백 제거·연속 공백 하나로, 제어·서식 문자 불가, 1~100자 | 장소 이름은 1~100자로 입력해 주세요. |
+| `type` | `집` `학교` `회사` `기타` 중 하나. POST에서 생략하면 `기타` | 분류는 집, 학교, 회사, 기타 중 하나여야 합니다. |
+| `address` | 255자 이하, 빈 값이면 `null` | 주소는 255자 이하로 입력해 주세요. |
+| `lat`, `lng` | 둘 다 보내거나 둘 다 생략. 숫자(문자열 불가), -90~90 / -180~180. 소수 7자리로 맞춘다 | 위도와 경도는 함께, 올바른 범위의 숫자로 보내 주세요. |
+
+- 같은 이름: 같은 사용자 안에서 별칭은 하나다. **대소문자·악센트·전각을 구분하지 않는다** (`Home`=`home`, `Café`=`cafe`, `Ａ`=`A`). 다른 사용자, 같은 좌표의 다른 이름은 허용.
+- 개수: 사용자당 최대 20개. 동시에 추가해도 넘지 않는다.
 
 ### GET /api/favorites
 
-최근에 추가한 것이 마지막에 오도록 `created_at` 오름차순으로 돌려준다.
+추가한 순서(오래된 것이 먼저)로 돌려준다. `200`
 
 ```json
 [
-  { "id": "1", "name": "집", "address": "경상남도 김해시 내외중앙로 47", "type": "집" }
+  { "id": "1", "name": "집", "address": "경상남도 김해시 내외중앙로 47", "type": "집", "lat": 35.2285, "lng": 128.8894 }
 ]
 ```
 
 ### POST /api/favorites
 
-요청:
-
 ```json
 { "name": "집", "address": "경상남도 김해시 내외중앙로 47", "type": "집", "lat": 35.2285, "lng": 128.8894 }
 ```
 
-- `name`: 1~100자, `address`: 255자 이하 (생략 가능), `type`: 위 4개 중 하나
-- `lat`, `lng`: DB에서 필수다. **지금 프론트(`addPlaceModal.js`)는 좌표를 보내지 않으므로**, 요청에 좌표가 없으면 서버가 `address`(없으면 `name`)로 카카오 로컬 API를 검색해 첫 결과의 좌표를 넣는다. 찾지 못하면 `400` "장소 위치를 찾을 수 없습니다."
+- `lat`·`lng`가 있으면 그대로 쓴다 (**권장**: 장소 검색에서 고른 좌표를 함께 보낸다).
+- 없으면 서버가 `address`(없으면 `name`)로 장소를 검색해 **결과가 정확히 하나일 때만** 그 좌표를 쓴다 (이름이 정확히 같은 결과가 있으면 그것). 없거나 여러 개이거나 서버가 mock 길찾기 모드면 `400` "장소 위치를 찾을 수 없습니다. 장소를 검색해서 선택해 주세요." 길찾기 API 장애는 `502`·`503`·`504`.
 
-응답: `201`
-
-```json
-{ "id": "1", "name": "집", "address": "경상남도 김해시 내외중앙로 47", "type": "집" }
-```
+응답: `201` + 즐겨찾기 하나 (위와 같은 형식). 오류: `400`, `401`, `403`(출처), `409`
 
 ### PATCH /api/favorites?id=
 
-요청: `PATCH /api/favorites?id=1`. 바꿀 필드만 보낸다. 규칙은 POST와 같다. `address`를 바꾸고 좌표를 보내지 않으면 서버가 좌표를 다시 찾는다.
+보낸 필드만 바꾼다. 이름·분류는 따로 바꿀 수 있고, **장소를 바꿀 때는 `address`·`lat`·`lng`를 함께** 보낸다 (`address`는 `null` 가능). 좌표 없이 주소만 바꾸는 것은 안 된다 (서버가 다시 찾지 않는다).
 
 ```json
 { "name": "우리 집", "type": "집" }
+{ "address": "부산광역시 동구 중앙대로 206", "lat": 35.1151, "lng": 129.0414 }
 ```
 
-응답: `200` + 수정된 즐겨찾기. 오류: `400`, `404`
+응답: `200` + 수정된 즐겨찾기. 오류: `400`("장소를 바꿀 때는 address, lat, lng를 함께 보내 주세요.", "바꿀 내용이 없습니다." 등), `401`, `404`, `409`(다른 즐겨찾기와 같은 이름. 자기 이름의 대소문자만 바꾸는 것은 된다)
 
 ### DELETE /api/favorites?id=
 
-요청: `DELETE /api/favorites?id=1`
+응답: `204` (본문 없음). 오류: `401`, `404`
 
-응답: `204` (본문 없음). 오류: `404`
+## 검색 기록 (`search_history`, 조회·삭제는 로그인 필요, **구현됨**)
 
-## 검색 기록 (`search_history`)
+`search_history`는 사용자 기록이면서 이용 통계(검색 수, 인기 출발지·목적지)의 원본이다. 그래서 행을 고치거나 지우지 않는다.
 
-### GET /api/history
+- **저장은 서버가 자동으로 한다.** `GET /api/routes`가 성공(`200`)했을 때만 저장한다. 프론트는 저장 요청을 보내지 않는다 (`POST /api/history`는 없다).
+- **조회할 때 같은 검색을 묶는다.** 기준은 (출발지 이름, 목적지 이름, 도착 희망 시각의 시:분, KST)이고, 묶음마다 가장 최근 것 하나가 카드가 된다. 이름은 대소문자를 구분하고, 여유시간은 묶음을 나누지 않는다.
+- **삭제는 분리다.** 행의 `user_id`를 `NULL`로 바꿔 내 목록에서만 사라지게 한다. 통계 행은 남는다. 탈퇴할 때도 같다 (`ON DELETE SET NULL`).
+- 사용자에게 연결된 행은 최근 200개까지 유지하고, 넘으면 오래된 것부터 분리한다.
 
-로그인: **필요**
+### 자동 저장 (`GET /api/routes`)
 
-내 검색 기록을 최신순으로 돌려준다 (`user_id = 세션 사용자`, `created_at` 내림차순, 인덱스 `idx_history_user_created`). `limit` 쿼리로 개수를 정한다 (기본 20, 최대 100).
+| 상황 | 저장 |
+| --- | --- |
+| `200` 응답 (일부 옵션만 성공한 경우 포함, 응답 캐시 적중 포함) | 저장 |
+| `400`, `422`, `5xx` 등 실패 응답 | 저장 안 함 |
+| 로그인 사용자 | `user_id` = 세션 사용자 |
+| 비로그인 | `user_id` = `NULL` (통계용. 누구의 목록에도 나오지 않는다) |
+| 로그인 사용자가 같은 검색(위 묶기 기준)을 **5분 안에** 다시 함 | 저장 안 함 (새로고침·뒤로 가기). 5분이 지나면 새 행 |
+| 비로그인 사용자의 반복 검색 | 매번 저장 (같은 사람인지 알 수 있는 값을 저장하지 않으므로 묶지 않는다) |
+
+- 저장 값: 출발지·목적지 이름(공백 정리, 100자까지), 실제로 경로 계산에 쓴 좌표(소수 7자리. 이름으로 확정한 경우 그 좌표), 도착 희망 시각, 여유시간, 추천 카드의 권장 출발 시각(추천 카드가 없으면 `NULL`), 이동수단 `car`. `ai_summary`는 `NULL`.
+- 저장은 응답을 보낸 뒤 백그라운드에서 한다. 세션 확인·저장이 실패해도 경로 응답에는 영향이 없다 (서버 로그에만 남는다).
+- **개인정보:** 비로그인 검색도 통계용으로 저장된다. 저장하는 값은 위의 검색 조건(출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간, 권장 출발 시각, 이동수단)과 저장 시각뿐이며, 비로그인 사용자를 식별할 수 있는 값(IP, 쿠키, 기기 정보)은 저장하지 않는다. 로그인 사용자가 기록을 지우거나 탈퇴하면 같은 상태(식별자 없는 통계 행)가 된다. 개인정보 처리방침에 이 내용을 적는다.
+
+### GET /api/history?limit=
+
+로그인: **필요**. 최신순, 묶은 뒤 `limit`개 (기본 20, 1~50 정수). 그 밖의 값(`0`, `51`, `abc`, `1.5`, 빈 값)은 `400` "개수는 1~50 사이의 정수여야 합니다."
 
 ```json
 [
-  { "id": "1", "from": "김해시청", "to": "동의대학교", "arriveTime": "2026-11-02T09:00:00+09:00" }
+  {
+    "id": "12",
+    "from": "김해시청",
+    "to": "동의대학교",
+    "arriveTime": "2026-11-02T09:00:00+09:00",
+    "buffer": 10,
+    "departTime": "2026-11-02T08:12:00+09:00",
+    "fromLat": 35.2285, "fromLng": 128.8894, "toLat": 35.1441, "toLng": 129.0336
+  }
 ]
 ```
 
-매핑: `from` = `origin_name`, `to` = `dest_name`, `arriveTime` = `arrive_at`
+- `id`: 묶음의 대표(가장 최근) 행. 삭제에 쓴다.
+- `departTime`, 좌표: 없으면 `null`. 다시 검색할 때 `buffer`와 좌표를 함께 넘기면 장소 확정을 건너뛴다.
+- 매핑: `from` = `origin_name`, `to` = `dest_name`, `arriveTime` = `arrive_at`, `buffer` = `buffer_min`, `departTime` = `recommended_depart_at`, `fromLat`… = `origin_lat`…
 
-### POST /api/history
+오류: `400`, `401`
 
-로그인: 불필요. 로그인 상태면 `user_id`에 세션 사용자를, 아니면 NULL을 넣는다. 비로그인 검색도 인기 출발지·목적지 통계에 쓴다.
+### DELETE /api/history?id=
 
-길찾기 결과를 보여 준 뒤 한 번 호출한다.
+**카드 한 장**(그 `id`와 같은 검색 묶음 전체)을 내 목록에서 지운다. 묶음 안의 어느 행 `id`로 지워도 같다. 응답: `204`
 
-```json
-{
-  "from": { "name": "김해시청", "lat": 35.2285, "lng": 128.8894 },
-  "to": { "name": "동의대학교", "lat": 35.1441, "lng": 129.0336 },
-  "arrive": "2026-11-02T09:00:00+09:00",
-  "buffer": 10,
-  "departTime": "2026-11-02T08:12:00+09:00",
-  "travelMode": "car",
-  "aiSummary": "남해고속도로 경유가 가장 안정적이에요"
-}
-```
+오류: `401`, `404`(없음, 남의 것, 이미 지운 것, 숫자가 아닌 `id`. `id=`가 비어 있어도 전체 삭제로 넘어가지 않고 `404`)
 
-- `from`, `to`: `name` 100자 이하, 좌표 생략 가능
-- `arrive`: 필수. `buffer`: 0 이상 정수, 생략하면 0
-- `departTime`, `aiSummary`: 생략 가능. `travelMode`: `car` | `transit`, 생략하면 `car`
+### DELETE /api/history
 
-매핑: `origin_*`·`dest_*` = `from`·`to`, `arrive_at` = `arrive`, `buffer_min` = `buffer`, `recommended_depart_at` = `departTime`, `travel_mode` = `travelMode`, `ai_summary` = `aiSummary`
-
-응답: `201` `{ "id": "1" }`. 오류: `400`
+`id` 없이 보내면 내 기록 **전체**를 지운다. 지울 것이 없어도 `204`. 오류: `401`
 
 ## 이용 통계
 
@@ -591,9 +615,10 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 | 회원 | `provider` | `sessions.login_provider` (이번 세션의 로그인 방식) |
 | 회원가입 | `agreeTerms`·`agreePrivacy` | `users.agreed_at` (동의 시각. 소셜 가입은 가입 시각) |
 | 소셜 로그인 | 제공자 사용자 ID (Google `sub`, 카카오 `id`) | `social_accounts.provider_user_id` |
-| 즐겨찾기 | `name`, `type` | `favorite_places.place_name`, `favorite_places.label` |
-| 검색 기록 | `from`, `to`, `arriveTime` (`arrive`) | `search_history.origin_name`, `dest_name`, `arrive_at` |
-| 검색 기록 | `buffer`, `departTime`, `travelMode`, `aiSummary` | `buffer_min`, `recommended_depart_at`, `travel_mode`, `ai_summary` |
+| 즐겨찾기 | `name`, `type`, `address`, `lat`, `lng` | `favorite_places.place_name`, `label`, `address`, `lat`, `lng` |
+| 검색 기록 | `from`, `to`, `arriveTime` | `search_history.origin_name`, `dest_name`, `arrive_at` |
+| 검색 기록 | `buffer`, `departTime`, `fromLat`·`fromLng`·`toLat`·`toLng` | `buffer_min`, `recommended_depart_at`, `origin_lat`·`origin_lng`·`dest_lat`·`dest_lng` |
+| 검색 기록 | (응답에 없음) | `travel_mode`(지금은 `car`), `ai_summary`(지금은 `NULL`), `created_at`(저장 시각) |
 | 공통 | `id` (문자열) | 각 테이블 `id` (BIGINT) |
 
 ## 해민과 정할 것
@@ -619,10 +644,15 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 - 장소 검색 호출 방식: 프론트엔드가 장소 검색 API를 직접 호출할지, 백엔드 `GET /api/places`가 중계할지 (해민과 합의 필요)
 - `from`, `to` 형식: 지금은 장소 이름만 전달한다. 출발시각 계산에는 좌표가 필요하다 (위 3번).
-- 즐겨찾기 좌표: 프론트 즐겨찾기 추가 모달이 장소 검색 결과의 좌표를 보내도록 바꾸면 서버의 좌표 검색을 뺄 수 있다.
-- 즐겨찾기·검색 기록 응답에 `lat`·`lng`, `buffer`·`departTime`을 더할지 (지금은 mock과 같은 필드만 돌려준다. 더하면 mock도 고친다)
-- 검색 기록 저장을 프론트의 `POST /api/history` 대신 서버가 `GET /api/routes` 처리 중에 직접 할지
 - `aiSummary`를 `/api/routes`에 포함할지, 별도 API로 분리할지
+
+### 정해진 항목 (즐겨찾기·검색 기록)
+
+- 즐겨찾기 좌표: 프론트가 장소 검색에서 고른 `lat`·`lng`를 함께 보낸다. 없으면 서버가 찾고, 못 찾으면 `400`.
+- 응답 필드: 즐겨찾기에 `lat`·`lng`, 검색 기록에 `buffer`·`departTime`·좌표를 더했다. 프론트 mock JSON도 같은 필드로 맞춘다.
+- 검색 기록 저장: 서버가 `GET /api/routes` 성공 때 자동으로 한다. `POST /api/history`는 만들지 않았다.
+- 비로그인: 즐겨찾기·기록 API는 모두 `401`. 프론트는 비로그인이면 부르지 않는다. 로컬 저장은 하지 않는다.
+- 검색 기록 삭제는 카드 단위(같은 검색 묶음)이고, 행은 통계용으로 남는다 (`user_id` NULL).
 
 ### 정해진 항목 (회원)
 

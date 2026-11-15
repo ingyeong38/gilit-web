@@ -29,7 +29,7 @@ from app.auth.validation import NAME_MAX, normalize_email, validate_login, valid
 from app.departure import KST
 
 if TYPE_CHECKING:
-    from app.db import MySQLConfig
+    from app.db import ConnectionPool, MySQLConfig
 
 SESSION_TTL = timedelta(days=14)  # 고정 만료. 사용해도 늘어나지 않는다
 SESSION_TOUCH_INTERVAL = timedelta(hours=1)  # last_seen_at은 이 간격보다 자주 쓰지 않는다
@@ -220,17 +220,23 @@ def create_auth_service(
     store: str,
     clock: Callable[[], datetime] | None = None,
     mysql: "MySQLConfig | None" = None,
+    pool: "ConnectionPool | None" = None,
 ) -> AuthService:
-    """AUTH_STORE에 맞는 저장소로 AuthService를 만든다. mysql이면 접속 정보(MySQLConfig)가 필요하다."""
+    """AUTH_STORE에 맞는 저장소로 AuthService를 만든다.
+
+    mysql이면 연결 풀(pool)을 받아 함께 쓴다. 웹 앱은 factory가 풀을 하나 만들어 회원·즐겨찾기 저장소에 나눠 준다.
+    pool을 주지 않으면 접속 정보(mysql)로 새로 만든다 (스크립트·테스트용).
+    """
     if store == "memory":
         return AuthService(MemoryUserStore(), MemorySessionStore(), clock=clock)
     if store == "mysql":
-        if mysql is None:
-            raise ValueError("AUTH_STORE=mysql에는 DB 접속 정보(DB_HOST, DB_NAME, DB_USER, DB_PASSWORD)가 필요합니다.")
         # pymysql은 mysql을 쓸 때만 불러온다.
         from app.auth.mysql_stores import MySQLSessionStore, MySQLUserStore
         from app.db import ConnectionPool
 
-        pool = ConnectionPool(mysql)
+        if pool is None:
+            if mysql is None:
+                raise ValueError("AUTH_STORE=mysql에는 DB 접속 정보(DB_HOST, DB_NAME, DB_USER, DB_PASSWORD)가 필요합니다.")
+            pool = ConnectionPool(mysql)
         return AuthService(MySQLUserStore(pool), MySQLSessionStore(pool), clock=clock)
     raise ValueError(f"AUTH_STORE는 {', '.join(AUTH_STORES)} 중 하나여야 합니다: {store}")

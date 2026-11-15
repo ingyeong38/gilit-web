@@ -96,6 +96,22 @@ def store_backend(request):
     backend.close()
 
 
+@pytest.fixture(params=["memory", pytest.param("mysql", marks=mysql_live)])
+def favorites_backend(request):
+    """즐겨찾기 계약 테스트용 저장소 (회원·세션·즐겨찾기). MySQL은 마이그레이션 003이 적용된 테스트 DB가 필요하다."""
+    backend = make_backend(request.param, favorites=True)
+    yield backend
+    backend.close()
+
+
+@pytest.fixture(params=["memory", pytest.param("mysql", marks=mysql_live)])
+def history_backend(request):
+    """검색 기록 계약 테스트용 저장소 (회원·세션·검색 기록). 스키마 변경은 필요 없다."""
+    backend = make_backend(request.param)
+    yield backend
+    backend.close()
+
+
 @pytest.fixture
 def clock():
     return lambda: NOW

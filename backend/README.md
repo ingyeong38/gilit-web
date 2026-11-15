@@ -11,11 +11,16 @@ backend/
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
 │   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
 │   ├── db.py                  # MySQL 연결 풀 (PyMySQL, utf8mb4, time_zone +09:00), KST 시각 변환
+│   ├── favorites/             # 즐겨찾기 (F9): 검증, 저장소(memory·mysql, 마이그레이션 003 필요), 좌표 확정·중복·20개 제한
+│   ├── history/               # 검색 기록 (F9): 쌓기만 하고 조회할 때 같은 검색을 묶음, 삭제는 user_id NULL 분리 (통계 보존),
+│   │                          #   recording.py: GET /api/routes 성공 때 자동 저장 (5분 안 같은 검색 생략, 실패해도 응답 영향 없음)
 │   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한, OAuth(Google·카카오·Mock), state 쿠키
 │   ├── api/                   # 웹 API (FastAPI)
-│   │   ├── factory.py         # create_app: Provider·Solver·AuthService를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
+│   │   ├── factory.py         # create_app: Provider·Solver·DB 연결 풀·저장소(회원·즐겨찾기)를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
 │   │   ├── auth.py            # /api/auth/signup·login·logout·me, require_user·optional_user 의존성
 │   │   ├── oauth.py           # /api/auth/{provider}/start·callback (소셜 로그인), 접근 로그의 콜백 쿼리 가림
+│   │   ├── favorites.py       # GET·POST·PATCH·DELETE /api/favorites (로그인 필요, ?id= 방식)
+│   │   ├── history.py         # GET /api/history?limit=, DELETE /api/history[?id=] (로그인 필요)
 │   │   ├── origin.py          # POST·PATCH·DELETE 출처(Origin) 검사 (CSRF 방어)
 │   │   ├── departure.py       # POST /api/departure
 │   │   ├── routes.py          # GET /api/places, GET /api/routes (경로 비교), 장소 확정, 응답 캐시
@@ -106,6 +111,15 @@ venv/Scripts/python -m pytest                     # 메모리 저장소, 가짜 
 venv/Scripts/python -m pytest -m mysql_live       # 같은 계약 테스트를 MySQL 테스트 DB에서 (db/README.md)
 AUTH_STORE=memory OAUTH_MOCK=1 venv/Scripts/python -m uvicorn app.main:app --port 8000   # 가짜 소셜 로그인으로 서버 실행
 ```
+
+### 즐겨찾기·검색 기록 (F9)
+
+API 계약은 `docs/api-spec.md` "즐겨찾기"와 "검색 기록"에 있다. 저장소는 `AUTH_STORE`를 따라 메모리 또는 MySQL이고, MySQL은 회원 저장소와 같은 연결 풀(`app.state.db_pool`)을 쓴다. 저장소 메서드의 첫 인자는 항상 `user_id`이고 SQL은 `WHERE id = ? AND user_id = ?`라서, 남의 데이터는 없는 것과 같은 `404`다.
+
+- 즐겨찾기(`app/favorites/`): 같은 사용자의 같은 별칭 금지(대소문자·악센트 무시, `409`), 사용자당 20개(`409`). MySQL은 `users` 행을 `FOR UPDATE`로 잠가 동시 추가에도 지킨다. 마이그레이션 003이 필요하다 (`db/README.md`).
+- 검색 기록(`app/history/`): 행은 쌓기만 하고, 조회할 때 같은 검색(출발지, 목적지, 도착 시각의 KST 시:분)을 묶고, 삭제는 `user_id`를 NULL로 분리한다 (통계 보존).
+- 자동 저장(`app/history/recording.py`): `GET /api/routes`가 `200`을 돌려줄 때만 응답을 보낸 뒤(FastAPI 백그라운드 작업) 저장한다. 응답 캐시 적중도 저장한다. 로그인 사용자의 같은 검색은 5분 안에 다시 저장하지 않는다. 세션 확인·저장 실패는 로그만 남기고 경로 응답에는 영향이 없다.
+- 계약 테스트는 `favorites_backend`·`history_backend` fixture로 메모리와 MySQL(`-m mysql_live`)에서 같은 테스트를 돈다.
 
 ## 출발시각 역산 엔진
 
