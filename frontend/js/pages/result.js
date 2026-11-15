@@ -1,6 +1,7 @@
-import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
+import { normalizeRouteGraphs } from "/js/components/durationGraph.js?v=card530-20261114-6";
+import { USE_MOCK_ROUTES as USE_MOCK, GRAPH_API_ENABLED } from "/js/config.js";
 import { addFavorite, getFavorites, getRouteGraph, getRoutes, searchPlaces } from "/js/api.js";
-import { renderDurationChart } from "/js/components/charts.js";
+import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { renderRouteMap } from "/js/components/map.js";
 import { showToast } from "/js/components/toast.js";
@@ -76,12 +77,14 @@ function renderRouteCard(route, index, { date, buffer }) {
       <div class="departure-label">권장 출발${isPreviousDay ? " (전날)" : ""}</div>
       <div class="departure-time">${timeOf(route.departTime)}</div>
       <div class="route-details">
-        <span><small>예상 소요</small><b>${route.durationMin}분</b></span>
-        <span><small>거리</small><b>${route.distanceKm}km</b></span>
-        <span><small>통행료</small><b>${route.toll == null ? "미제공" : formatWon(route.toll)}</b></span>
-        <span><small>예상 유류비</small><b>${route.fuel == null ? "미제공" : formatWon(route.fuel)}</b></span>
+        ${[
+          ["clock", "예상 소요시간", typeof route.durationMin === "number" ? `${route.durationMin}분` : "미제공"],
+          ["route", "거리", typeof route.distanceKm === "number" ? `${route.distanceKm}km` : "미제공"],
+          ["toll", "통행료", route.toll == null ? "미제공" : formatWon(route.toll)],
+          ["fuel", "예상 유류비", route.fuel == null ? "미제공" : formatWon(route.fuel)],
+        ].map(([name, title, value]) => `<div class="route-metric"><span class="route-metric-icon">${icon(name, { size: 25 })}</span><div><small>${title}</small><b>${escapeHtml(value)}</b></div></div>`).join("")}
       </div>
-      <div class="arrival-info"><span>${icon("check", { size: 14 })} ${timeOf(route.arriveTime)} 도착 예정</span>${renderBufferNote(route, buffer)}</div>
+      <div class="arrival-info"><div class="arrival-main">${icon("flag", { size: 25 })}<span>도착 예정</span><b>${escapeHtml(timeOf(route.arriveTime))}</b></div>${renderBufferNote(route, buffer)}</div>
     </article>
   `;
 }
@@ -124,14 +127,28 @@ function setupShareButton() {
   });
 }
 
-function setupResults(search, routes, graph) {
+function setupResults(search, routes, graph = []) {
+  let selectedIndex = 0;
+  let graphs = normalizeRouteGraphs(graph, routes);
+  let graphMessage = "소요시간 그래프를 불러오는 중입니다.";
   const list = document.getElementById("route-list");
   list.innerHTML = routes.map((route, index) => renderRouteCard(route, index, search)).join("");
   const cards = list.querySelectorAll(".route-card");
-  const durations = graph.flatMap(({ points }) => points.map((point) => point.durationMin));
-  const range = { min: Math.min(...durations), max: Math.max(...durations) };
+  const drawGraph = () => {
+    const route = routes[selectedIndex];
+    const normalized = graphs.get(route.id);
+    const durations = [...graphs.values()].flatMap(value => value.points.map(point => point.durationMin));
+    const range = durations.length ? { min: Math.min(...durations), max: Math.max(...durations) } : undefined;
+    const chart = document.getElementById("duration-chart");
+    chart.setAttribute("aria-busy", String(graphMessage.includes("불러오는 중")));
+    renderDurationChart(chart, { points: normalized?.points ?? [], discarded: normalized?.discarded ?? 0,
+      color: ROUTE_COLORS[selectedIndex % ROUTE_COLORS.length], recommendedTime: route.departTime,
+      range, routeName: `${formatRouteLabel(route)} · ${route.name}`, routeId: route.id, isExample: USE_MOCK,
+      routeTag: formatRouteLabel(route), message: graphMessage || "선택 경로와 일치하는 유효한 그래프 데이터가 없습니다." });
+  };
 
   const select = (index) => {
+    selectedIndex = index;
     const route = routes[index];
     const color = ROUTE_COLORS[index % ROUTE_COLORS.length];
     cards.forEach((card, cardIndex) => {
@@ -146,12 +163,7 @@ function setupResults(search, routes, graph) {
       to: USE_MOCK ? "동의대학교" : search.to,
       isExample: USE_MOCK,
     });
-    const points = graph.find(({ routeId }) => routeId === route.id)?.points ?? [];
-    const chart = document.getElementById("duration-chart");
-    chart.hidden = points.length === 0;
-    if (points.length > 0) {
-      renderDurationChart(chart, { points, color, recommendedTime: route.departTime, range });
-    }
+    drawGraph();
     document.querySelector(".ai-label").textContent = USE_MOCK ? "AI 경로 추천 요약" : "카카오 경로 안내";
     document.getElementById("ai-title").textContent = route.aiSummary.title;
     document.getElementById("ai-text").textContent = route.aiSummary.text;
@@ -179,6 +191,11 @@ function setupResults(search, routes, graph) {
   });
 
   select(0);
+  return (data, message = "") => {
+    graphs = normalizeRouteGraphs(data, routes);
+    graphMessage = message;
+    drawGraph(); // 데이터 수신 때 지도를 다시 생성하거나 선택 경로를 초기화하지 않는다.
+  };
 }
 
 async function init() {
@@ -198,15 +215,18 @@ async function init() {
 
   try {
     const arrive = toIsoTime(search.date, search.time);
-    const [routes, graph] = await Promise.all([
-      getRoutes({ ...search, arrive }),
-      getRouteGraph({ from: search.from, to: search.to, arrive }),
-    ]);
+    const routes = await getRoutes({ ...search, arrive });
     if (routes.length === 0) {
       renderMessage({ title: "경로를 찾지 못했어요", text: "출발지와 목적지를 다시 확인해 주세요." });
       return;
     }
-    setupResults(search, routes, graph);
+    const updateGraph = setupResults(search, routes);
+    // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
+    getRouteGraph({ from: search.from, to: search.to, arrive }).then(graph => {
+      updateGraph(graph, !USE_MOCK && !GRAPH_API_ENABLED ? "그래프 API 연동 대기 중입니다. 경로 카드와 지도는 계속 사용할 수 있습니다." : "");
+    }).catch(() => {
+      updateGraph([], "소요시간 그래프를 불러오지 못했습니다. 경로 카드와 지도는 계속 사용할 수 있습니다.");
+    });
   } catch (error) {
     renderMessage({ title: "경로를 불러오지 못했어요", text: error.status >= 400 && error.status < 500 ? error.message : "실제 경로 조회에 실패했어요. 서버와 API 연결을 확인한 뒤 다시 시도해 주세요." });
   }
