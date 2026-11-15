@@ -1,5 +1,6 @@
+import { showToast } from "/js/components/toast.js";
 import { logoutSession } from "/js/api.js";
-import { getUser, logout, onAuthChange } from "/js/auth.js";
+import { getUser, logout, onAuthChange, initializeAuth, takeAuthMessage } from "/js/auth.js";
 import { openAuthModal } from "/js/components/authModal.js";
 import { icon } from "/js/components/icon.js";
 import { installAuthGuard } from "/js/guard.js";
@@ -21,10 +22,10 @@ function renderAccount(user) {
       </div>
     `;
   }
-  const name = escapeHtml(user.name);
+  const name = escapeHtml(user.name || "길잇 사용자");
   return `
     <button class="profile-button" type="button" data-action="profile" aria-label="프로필 메뉴">
-      <span class="avatar">${escapeHtml(user.name.charAt(0))}</span>
+      <span class="avatar">${escapeHtml((user.name || "길잇 사용자").charAt(0))}</span>
       <span>${name}</span>
       ${icon("chevron", { size: 16 })}
     </button>
@@ -65,10 +66,13 @@ function renderHeader() {
     const menu = header.querySelector(".profile-menu");
     menu.hidden = !menu.hidden;
   });
-  header.querySelector('[data-action="logout"]')?.addEventListener("click", async () => {
-    // 서버 세션 종료에 실패해도 이 브라우저에서는 로그아웃시킨다.
-    await logoutSession().catch(() => {});
-    logout();
+  header.querySelector('[data-action="logout"]')?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "로그아웃 중…";
+    try { await logoutSession(); logout(); }
+    catch { showToast("로그아웃하지 못했습니다. 다시 시도해 주세요.", { error: true }); button.disabled = false; button.textContent = "로그아웃"; }
   });
 }
 
@@ -76,3 +80,9 @@ function renderHeader() {
 onAuthChange(renderHeader);
 installAuthGuard();
 renderHeader();
+
+initializeAuth().then(() => {
+  renderHeader();
+  const message = takeAuthMessage();
+  if (message) showToast(message, { error: true });
+});
