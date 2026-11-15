@@ -104,6 +104,14 @@ def favorites_backend(request):
     backend.close()
 
 
+@pytest.fixture(params=["memory", pytest.param("mysql", marks=mysql_live)])
+def history_backend(request):
+    """검색 기록 계약 테스트용 저장소 (회원·세션·검색 기록). 스키마 변경은 필요 없다."""
+    backend = make_backend(request.param)
+    yield backend
+    backend.close()
+
+
 @pytest.fixture
 def clock():
     return lambda: NOW

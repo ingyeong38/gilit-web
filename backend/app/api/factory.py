@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth as auth_api
 from app.api import departure, health, routes
 from app.api import favorites as favorites_api
+from app.api import history as history_api
 from app.api import oauth as oauth_api
 from app.api.errors import install_error_handlers
 from app.api.origin import install_origin_check
@@ -18,6 +19,7 @@ from app.auth.oauth_state import UsedStates
 from app.config import Settings, create_oauth_clients, create_route_provider, load_env_files
 from app.departure import DepartureError, DepartureSolver, RouteProvider
 from app.favorites import Coordinates, FavoriteService, create_favorite_store
+from app.history import HistoryService, create_history_store
 from app.routing import RouteResultCache
 
 logger = logging.getLogger("app.api")
@@ -46,6 +48,7 @@ def create_app(
     auth: AuthService | None = None,
     oauth_clients: dict[str, OAuthClient] | None = None,
     favorites: FavoriteService | None = None,
+    history: HistoryService | None = None,
 ) -> FastAPI:
     """FastAPI 앱을 만든다. settings를 주지 않으면 .env와 환경변수에서 읽는다.
 
@@ -60,7 +63,7 @@ def create_app(
         provider = create_route_provider(settings)
 
     pool = None
-    if settings.auth_store == "mysql" and (auth is None or favorites is None):
+    if settings.auth_store == "mysql" and (auth is None or favorites is None or history is None):
         from app.db import ConnectionPool  # pymysql은 mysql을 쓸 때만 불러온다
 
         pool = ConnectionPool(settings.mysql_config())
@@ -72,6 +75,12 @@ def create_app(
             logger.warning("AUTH_STORE=%s용 즐겨찾기 저장소가 아직 없습니다. 즐겨찾기 API는 503을 돌려줍니다.", settings.auth_store)
         else:
             favorites = FavoriteService(store, locate=place_locator(provider), clock=clock)
+    if history is None:
+        history_store = create_history_store(settings.auth_store, pool)
+        if history_store is None:
+            logger.warning("AUTH_STORE=%s용 검색 기록 저장소가 없습니다. 검색 기록 API는 503을 돌려줍니다.", settings.auth_store)
+        else:
+            history = HistoryService(history_store, clock=clock)
 
     if oauth_clients is None:
         oauth_clients = create_oauth_clients(settings)
@@ -92,6 +101,7 @@ def create_app(
     app.state.db_pool = pool
     app.state.auth = auth
     app.state.favorites = favorites
+    app.state.history = history
     app.state.oauth_clients = oauth_clients
     app.state.oauth_used_states = UsedStates()
 
@@ -110,6 +120,7 @@ def create_app(
     app.include_router(auth_api.router)
     app.include_router(oauth_api.router)
     app.include_router(favorites_api.router)
+    app.include_router(history_api.router)
     app.include_router(departure.router)
     app.include_router(routes.router)
     return app

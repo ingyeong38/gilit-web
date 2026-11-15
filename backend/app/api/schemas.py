@@ -25,6 +25,26 @@ class FavoriteResponse(BaseModel):
     lng: float = Field(description="경도", examples=[128.8894])
 
 
+class HistoryResponse(BaseModel):
+    """검색 기록 카드 하나 (docs/api-spec.md "검색 기록"). 목업(history.json)의 필드에 다시 검색용 값을 더했다.
+
+    같은 검색(출발지, 목적지, 도착 시각의 시:분)은 가장 최근 것 하나로 묶여 있다. id는 그 대표 행의 id다.
+    """
+
+    id: str = Field(description="기록 id (대표 행). DELETE /api/history?id=에 쓴다", examples=["12"])
+    from_: str | None = Field(alias="from", description="출발지 이름", examples=["김해시청"])
+    to: str | None = Field(description="목적지 이름", examples=["동의대학교"])
+    arriveTime: str = Field(description="도착 희망 시각 (ISO 8601, KST)", examples=["2026-11-02T09:00:00+09:00"])
+    buffer: int = Field(description="여유시간(분)", examples=[10])
+    departTime: str | None = Field(description="추천 경로의 권장 출발 시각. 없을 수 있다", examples=["2026-11-02T08:12:00+09:00"])
+    fromLat: float | None = Field(description="출발지 위도. 없을 수 있다")
+    fromLng: float | None = Field(description="출발지 경도")
+    toLat: float | None = Field(description="목적지 위도")
+    toLng: float | None = Field(description="목적지 경도")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class UserResponse(BaseModel):
     """회원 API가 돌려주는 사용자 객체 (docs/api-spec.md "사용자 객체")."""
 

@@ -17,12 +17,13 @@ from dotenv import dotenv_values
 
 from app.auth import MemorySessionStore, MemoryUserStore, User
 from app.favorites import MemoryFavoriteStore
+from app.history import MemoryHistoryStore
 from app.config import ENV_FILES
 from app.db import ConnectionPool, MySQLConfig, to_db
 from app.departure import KST
 
 DB_VARS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SSL_CA", "TEST_DB_NAME")
-AUTH_TABLES = ("sessions", "social_accounts", "favorite_places", "users")  # 지우는 순서 (FK)
+AUTH_TABLES = ("sessions", "social_accounts", "favorite_places", "search_history", "users")  # 지우는 순서 (FK)
 
 
 def _read_vars() -> dict[str, str]:
@@ -73,6 +74,11 @@ class MemoryBackend:
         self.users = MemoryUserStore()
         self.sessions = MemorySessionStore()
         self.favorites = MemoryFavoriteStore()
+        self.history = MemoryHistoryStore()
+
+    def history_rows(self) -> list[tuple[int, int | None]]:
+        """분리된 행을 포함한 검색 기록 전체 (id, user_id), id 순."""
+        return [(row.id, row.user_id) for row in self.history.rows()]
 
     def add_social_only_user(self, email: str | None, nickname: str) -> User:
         return self.users.add_user(User(id=0, email=email, nickname=nickname, agreed_at=datetime.now(KST)))
@@ -102,12 +108,18 @@ class MySQLBackend:
         from app.auth.mysql_stores import MySQLSessionStore, MySQLUserStore
 
         from app.favorites.mysql_stores import MySQLFavoriteStore
+        from app.history.mysql_stores import MySQLHistoryStore
 
         self.config = config
         self.pool = ConnectionPool(config)
         self.users = MySQLUserStore(self.pool)
         self.sessions = MySQLSessionStore(self.pool)
         self.favorites = MySQLFavoriteStore(self.pool)
+        self.history = MySQLHistoryStore(self.pool)
+
+    def history_rows(self) -> list[tuple[int, int | None]]:
+        rows = self.execute("SELECT id, user_id FROM search_history ORDER BY id")
+        return [(int(r["id"]), int(r["user_id"]) if r["user_id"] is not None else None) for r in rows]
 
     def execute(self, sql: str, params: tuple = ()):
         with self.pool.connection() as conn, conn.cursor() as cur:

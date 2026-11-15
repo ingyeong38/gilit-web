@@ -12,12 +12,14 @@ backend/
 │   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
 │   ├── db.py                  # MySQL 연결 풀 (PyMySQL, utf8mb4, time_zone +09:00), KST 시각 변환
 │   ├── favorites/             # 즐겨찾기 (F9): 검증, 저장소(memory·mysql, 마이그레이션 003 필요), 좌표 확정·중복·20개 제한
+│   ├── history/               # 검색 기록 (F9): 쌓기만 하고 조회할 때 같은 검색을 묶음, 삭제는 user_id NULL 분리 (통계 보존)
 │   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한, OAuth(Google·카카오·Mock), state 쿠키
 │   ├── api/                   # 웹 API (FastAPI)
 │   │   ├── factory.py         # create_app: Provider·Solver·DB 연결 풀·저장소(회원·즐겨찾기)를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
 │   │   ├── auth.py            # /api/auth/signup·login·logout·me, require_user·optional_user 의존성
 │   │   ├── oauth.py           # /api/auth/{provider}/start·callback (소셜 로그인), 접근 로그의 콜백 쿼리 가림
 │   │   ├── favorites.py       # GET·POST·PATCH·DELETE /api/favorites (로그인 필요, ?id= 방식)
+│   │   ├── history.py         # GET /api/history?limit=, DELETE /api/history[?id=] (로그인 필요)
 │   │   ├── origin.py          # POST·PATCH·DELETE 출처(Origin) 검사 (CSRF 방어)
 │   │   ├── departure.py       # POST /api/departure
 │   │   ├── routes.py          # GET /api/places, GET /api/routes (경로 비교), 장소 확정, 응답 캐시
