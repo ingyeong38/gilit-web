@@ -14,6 +14,17 @@ MySQL 8.0.16 이상 (AWS RDS for MySQL 8), 문자셋 `utf8mb4`, 엔진 InnoDB.
 | --- | --- |
 | `001_users_email_nullable.sql` | `users.email` NULL 허용 (카카오 가입자는 이메일이 없을 수 있다) |
 | `002_sessions.sql` | 로그인 세션 테이블 `sessions` |
+| `003_favorite_places_constraints.sql` | `favorite_places`: UNIQUE(user_id, place_name), CHECK(label), `idx_favorite_user` 삭제. 적용 전 중복 확인 쿼리가 파일 맨 위에 있다 |
+
+**이미 만든 DB에 어디까지 적용됐는지 확인하기** (관리자든 서비스 계정이든 된다):
+
+```sql
+SELECT 'sessions(002)' AS step, COUNT(*) > 0 AS applied FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sessions'
+UNION ALL
+SELECT 'uq_favorite_user_name(003)', COUNT(*) > 0 FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'favorite_places' AND INDEX_NAME = 'uq_favorite_user_name';
+```
 
 ## ERD
 
@@ -117,11 +128,12 @@ erDiagram
 
 ### favorite_places
 
-즐겨찾기 장소. 사용자를 지우면 함께 지워진다.
+즐겨찾기 장소. 사용자를 지우면 함께 지워진다 (`ON DELETE CASCADE`).
 
-- `label`: `집`, `학교`, `회사`, `기타` 중 하나 (API의 `type`). 값 검사는 서버에서 한다.
-- `place_name`: 장소 이름 (API의 `name`)
-- `lat`, `lng`: 필수. `DECIMAL(10,7)`은 약 1cm 정밀도다.
+- `label`: `집`, `학교`, `회사`, `기타` 중 하나 (API의 `type`). 서버가 검사하고 DB도 CHECK(`chk_favorite_label`)로 막는다.
+- `place_name`: 사용자가 붙인 별칭 (API의 `name`). 같은 사용자 안에서 하나만 있다 (`uq_favorite_user_name`). 콜레이션 때문에 대소문자·악센트·전각을 구분하지 않는다 (`Home`=`home`, `Café`=`cafe`, `Ａ`=`A`).
+- `lat`, `lng`: 필수. `DECIMAL(10,7)`은 약 1cm 정밀도다. 서버가 소수 7자리로 맞춰 넣는다.
+- 사용자당 최대 20개는 서버가 지킨다. 추가할 때 그 사용자의 `users` 행을 `SELECT ... FOR UPDATE`로 잠그고 개수를 센 뒤 같은 트랜잭션에서 넣으므로, 동시에 추가해도 넘지 않는다.
 
 ### search_history
 
@@ -150,7 +162,8 @@ erDiagram
 | sessions | `idx_sessions_user` (user_id) | 사용자별 세션, FK 인덱스 |
 | sessions | `idx_sessions_expires` (expires_at) | 만료 세션 정리 |
 | sessions | `fk_sessions_user` → users, CASCADE | |
-| favorite_places | `idx_favorite_user` (user_id) | 내 즐겨찾기 목록 |
+| favorite_places | `uq_favorite_user_name` (user_id, place_name) | 같은 별칭 금지, 내 즐겨찾기 목록, FK 인덱스 (003에서 `idx_favorite_user`를 대신함) |
+| favorite_places | `chk_favorite_label` CHECK (label IN 집·학교·회사·기타) | 분류 값 제한 |
 | favorite_places | `fk_favorite_user` → users, CASCADE | |
 | search_history | `idx_history_user_created` (user_id, created_at) | 내 검색 기록 최신순 |
 | search_history | `idx_history_dest` (dest_name), `idx_history_origin` (origin_name) | 인기 목적지·출발지 |
@@ -200,12 +213,15 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
      mysql -u root -p --default-character-set=utf8mb4 gilit_test -e "source db/schema.sql"
      ```
 
-   - **`migrations/` 001·002 이전의 `schema.sql`로 이미 만든 DB** (`sessions` 테이블이 없는 DB): `migrations/`를 번호 순서대로 실행한다. 다시 실행해도 된다.
+   - **이미 만든 DB**: 위의 "어디까지 적용됐는지 확인하기"로 본 뒤, 빠진 마이그레이션을 **번호 순서대로** 실행한다. 모두 다시 실행해도 된다. `gilit`과 `gilit_test` 둘 다 한다.
 
      ```bash
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/001_users_email_nullable.sql"
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/002_sessions.sql"
+     mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/003_favorite_places_constraints.sql"
      ```
+
+     003은 같은 사용자의 이름이 겹치는 즐겨찾기가 있으면 실패한다. 먼저 파일 맨 위의 "적용 전 확인 쿼리"를 실행해 결과가 비어 있는지 본다. 003이 적용되지 않은 `gilit_test`에서는 `pytest -m mysql_live`의 즐겨찾기 테스트가 "마이그레이션 003이 적용되지 않았습니다"로 멈춘다 (회원 테스트는 그대로 돈다).
 
    Git Bash·macOS·Linux는 `-e "source ..."` 대신 `< db/schema.sql`도 된다. PowerShell은 `<` 리디렉션이 안 되므로 `-e "source ..."`를 쓴다.
 
@@ -249,7 +265,7 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
    ```
 
    PowerShell은 `<` 리디렉션이 안 되므로 `mysql ... gilit -e "source db/schema.sql"`을 쓰거나, MySQL Workbench에서 파일을 열어 실행한다.
-   `migrations/` 001·002 이전의 `schema.sql`로 이미 만든 RDS라면 `schema.sql` 대신 `migrations/`를 번호 순서대로 실행한다.
+   이미 만든 RDS라면 `schema.sql` 대신 빠진 `migrations/`를 번호 순서대로 실행한다 (003은 적용 전 확인 쿼리를 먼저).
 
 4. 서버의 `.env`를 RDS 값으로 바꾼다. 코드는 바꾸지 않는다.
 

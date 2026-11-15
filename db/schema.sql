@@ -4,7 +4,7 @@
 -- 모든 DATETIME은 한국 시간(KST)이다. 서버는 연결할 때 SET time_zone = '+09:00'을 실행한다 (db/README.md).
 -- 테이블 설명과 API 필드 매핑은 db/README.md, docs/api-spec.md를 본다.
 -- 이 파일은 항상 최종 구조다. 이미 만든 DB는 db/migrations/의 번호 순서대로 적용한다 (db/README.md).
--- 반영된 마이그레이션: 001_users_email_nullable, 002_sessions
+-- 반영된 마이그레이션: 001_users_email_nullable, 002_sessions, 003_favorite_places_constraints
 
 SET NAMES utf8mb4;
 
@@ -52,19 +52,20 @@ CREATE TABLE IF NOT EXISTS sessions (
   CONSTRAINT chk_sessions_provider CHECK (login_provider IN ('email', 'google', 'kakao'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
--- 즐겨찾기 장소
+-- 즐겨찾기 장소. 사용자당 최대 20개(서버가 검사), 같은 사용자의 같은 별칭은 하나 (대소문자·악센트 무시).
 CREATE TABLE IF NOT EXISTS favorite_places (
   id         BIGINT        NOT NULL AUTO_INCREMENT,
   user_id    BIGINT        NOT NULL,
   label      VARCHAR(50)   NOT NULL,                -- '집', '학교', '회사', '기타' (API의 type)
-  place_name VARCHAR(100)  NOT NULL,                -- API의 name
+  place_name VARCHAR(100)  NOT NULL,                -- API의 name (사용자가 붙인 별칭)
   address    VARCHAR(255)  NULL,
   lat        DECIMAL(10,7) NOT NULL,
   lng        DECIMAL(10,7) NOT NULL,
   created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  KEY idx_favorite_user (user_id),
-  CONSTRAINT fk_favorite_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+  UNIQUE KEY uq_favorite_user_name (user_id, place_name),  -- user_id로 시작해 FK 인덱스도 겸한다
+  CONSTRAINT fk_favorite_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT chk_favorite_label CHECK (label IN ('집', '학교', '회사', '기타'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
 -- 길찾기 검색 기록. 비로그인 검색도 user_id NULL로 남겨 이용 통계에 쓴다.

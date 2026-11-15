@@ -96,14 +96,10 @@ def store_backend(request):
     backend.close()
 
 
-# MySQL 즐겨찾기 저장소는 2단계에서 구현한다. 그때 skip만 빼면 같은 계약 테스트가 MySQL에서도 돈다.
-MYSQL_FAVORITES_PENDING = pytest.mark.skip(reason="MySQL 즐겨찾기 저장소는 2단계에서 구현한다.")
-
-
-@pytest.fixture(params=["memory", pytest.param("mysql", marks=[*mysql_live, MYSQL_FAVORITES_PENDING])])
+@pytest.fixture(params=["memory", pytest.param("mysql", marks=mysql_live)])
 def favorites_backend(request):
-    """즐겨찾기 계약 테스트용 저장소 (회원·세션·즐겨찾기). store_backend와 같은 백엔드에 favorites가 붙는다."""
-    backend = make_backend(request.param)
+    """즐겨찾기 계약 테스트용 저장소 (회원·세션·즐겨찾기). MySQL은 마이그레이션 003이 적용된 테스트 DB가 필요하다."""
+    backend = make_backend(request.param, favorites=True)
     yield backend
     backend.close()
 

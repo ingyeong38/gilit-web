@@ -136,6 +136,15 @@ def test_integer_coordinates_are_accepted(env):
     assert (body["lat"], body["lng"]) == (35.0, 129.0)
 
 
+def test_coordinates_are_rounded_to_seven_decimals_consistently(env):
+    """DB 열이 DECIMAL(10,7)이다. 추가 응답과 나중 조회가 같은 값을 준다 (저장소와 무관)."""
+    created = add(env.alice, lat=35.123456789, lng=129.000000049).json()
+
+    listed = env.alice.get("/api/favorites").json()[0]
+    assert (created["lat"], created["lng"]) == (35.1234568, 129.0)
+    assert (listed["lat"], listed["lng"]) == (created["lat"], created["lng"])
+
+
 # --- 좌표 없이 추가 (장소 확정) ---
 
 
@@ -532,8 +541,10 @@ def test_memory_store_is_default():
     assert app.state.db_pool is None
 
 
-def test_mysql_settings_share_one_pool_and_favorites_wait_for_stage_2():
-    """AUTH_STORE=mysql이면 factory가 연결 풀 하나를 만들어 회원 저장소들이 함께 쓴다 (연결은 처음 쓸 때)."""
+def test_mysql_settings_share_one_pool_across_all_stores():
+    """AUTH_STORE=mysql이면 factory가 연결 풀 하나를 만들어 회원·즐겨찾기 저장소가 함께 쓴다 (연결은 처음 쓸 때)."""
+    from app.favorites.mysql_stores import MySQLFavoriteStore
+
     settings = Settings.from_env(
         {"AUTH_STORE": "mysql", "DB_HOST": "db.invalid", "DB_NAME": "gilit", "DB_USER": "gilit_app", "DB_PASSWORD": "pw"}
     )
@@ -543,7 +554,8 @@ def test_mysql_settings_share_one_pool_and_favorites_wait_for_stage_2():
     assert app.state.db_pool is not None
     assert app.state.auth.users.pool is app.state.db_pool
     assert app.state.auth.sessions.pool is app.state.db_pool
-    assert app.state.favorites is None  # MySQL 즐겨찾기 저장소는 2단계
+    assert isinstance(app.state.favorites.store, MySQLFavoriteStore)
+    assert app.state.favorites.store.pool is app.state.db_pool
 
 
 def test_favorites_api_is_503_when_store_is_unavailable(env):

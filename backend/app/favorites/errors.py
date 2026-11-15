@@ -29,3 +29,7 @@ class FavoriteNameTakenError(Exception):
 
 class FavoriteLimitError(Exception):
     """사용자당 최대 개수에 닿았다."""
+
+
+class FavoriteOwnerMissingError(Exception):
+    """세션 확인 뒤 사용자가 지워졌다 (탈퇴와 추가가 겹친 경우). 로그인이 필요한 상태로 본다."""

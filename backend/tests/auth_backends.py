@@ -22,7 +22,7 @@ from app.db import ConnectionPool, MySQLConfig, to_db
 from app.departure import KST
 
 DB_VARS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SSL_CA", "TEST_DB_NAME")
-AUTH_TABLES = ("sessions", "social_accounts", "users")  # 지우는 순서 (FK)
+AUTH_TABLES = ("sessions", "social_accounts", "favorite_places", "users")  # 지우는 순서 (FK)
 
 
 def _read_vars() -> dict[str, str]:
@@ -101,10 +101,13 @@ class MySQLBackend:
     def __init__(self, config: MySQLConfig) -> None:
         from app.auth.mysql_stores import MySQLSessionStore, MySQLUserStore
 
+        from app.favorites.mysql_stores import MySQLFavoriteStore
+
         self.config = config
         self.pool = ConnectionPool(config)
         self.users = MySQLUserStore(self.pool)
         self.sessions = MySQLSessionStore(self.pool)
+        self.favorites = MySQLFavoriteStore(self.pool)
 
     def execute(self, sql: str, params: tuple = ()):
         with self.pool.connection() as conn, conn.cursor() as cur:
@@ -122,6 +125,31 @@ class MySQLBackend:
             )
         (row,) = self.execute("SELECT DATABASE() AS db")
         assert row["db"].endswith("_test")
+
+    def check_favorites_migration(self) -> None:
+        """즐겨찾기 테스트는 마이그레이션 003(UNIQUE·CHECK)이 적용된 DB에서만 돈다."""
+        indexes = {
+            row["INDEX_NAME"]
+            for row in self.execute(
+                "SELECT INDEX_NAME FROM information_schema.STATISTICS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'favorite_places'"
+            )
+        }
+        checks = {
+            row["CONSTRAINT_NAME"]
+            for row in self.execute(
+                "SELECT CONSTRAINT_NAME FROM information_schema.TABLE_CONSTRAINTS "
+                "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'favorite_places' AND CONSTRAINT_TYPE = 'CHECK'"
+            )
+        }
+        missing = [name for name in ("uq_favorite_user_name",) if name not in indexes]
+        missing += [name for name in ("chk_favorite_label",) if name not in checks]
+        if missing:
+            pytest.fail(
+                f"테스트 DB {self.config.database}에 마이그레이션 003이 적용되지 않았습니다 (없음: {', '.join(missing)}). "
+                "관리자 계정으로 db/migrations/003_favorite_places_constraints.sql을 실행하세요 (db/README.md).",
+                pytrace=False,
+            )
 
     def reset(self) -> None:
         for table in AUTH_TABLES:
@@ -157,10 +185,13 @@ class MySQLBackend:
         self.pool.close()
 
 
-def make_backend(kind: str):
+def make_backend(kind: str, favorites: bool = False):
+    """favorites=True면 MySQL에 마이그레이션 003이 적용돼 있는지도 확인한다 (즐겨찾기 테스트용)."""
     if kind == "memory":
         return MemoryBackend()
     backend = MySQLBackend(MYSQL_CONFIG)
     backend.check_schema()
+    if favorites:
+        backend.check_favorites_migration()
     backend.reset()
     return backend

@@ -23,6 +23,7 @@ DEFAULT_TYPE = "기타"
 NAME_MAX = 100  # favorite_places.place_name VARCHAR(100)
 ADDRESS_MAX = 255  # favorite_places.address VARCHAR(255)
 PLACE_FIELDS = ("address", "lat", "lng")
+COORDINATE_DECIMALS = 7  # favorite_places.lat·lng DECIMAL(10,7)
 
 _MISSING = object()
 
@@ -96,7 +97,8 @@ def _number(value: Any, low: float, high: float) -> float:
     number = float(value)
     if not math.isfinite(number) or not low <= number <= high:
         raise _invalid(COORDINATES_INVALID)
-    return number
+    # DB 열이 DECIMAL(10,7)이다 (약 1cm). 미리 맞춰 두어 추가 응답과 나중 조회 값, 메모리·MySQL 저장소가 같게 한다.
+    return round(number, COORDINATE_DECIMALS)
 
 
 def clean_coordinates(lat: Any, lng: Any) -> Coordinates | None:
@@ -159,8 +161,20 @@ def parse_favorite_id(value: str | None) -> int | None:
     return number
 
 
+# NFKC·악센트 제거로도 풀리지 않지만 utf8mb4_0900_ai_ci가 같은 글자로 보는 것 (MySQL 8.0.46에서 확인):
+# 합자(æ, œ)와 획이 그어진 글자(ø, đ, ł). casefold 뒤에 적용하므로 소문자만 둔다.
+_LIGATURES = str.maketrans({"æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l"})
+
+
 def name_key(name: str) -> str:
-    """중복 판단용 이름. MySQL utf8mb4_0900_ai_ci처럼 대소문자·악센트를 구분하지 않는다."""
-    decomposed = unicodedata.normalize("NFD", name)
+    """중복 판단용 이름 (메모리 저장소). MySQL utf8mb4_0900_ai_ci와 같은 결과를 내도록 맞춘다.
+
+    - NFKC: 전각 문자(Ａ=A, ２=2), 원문자(①=1), 합자(ﬁ=fi)를 일반 글자로
+    - casefold: 대소문자 (ß=ss 포함)
+    - NFD 후 결합 부호 제거: 악센트 (é=e). 한글 자모는 결합 부호가 아니라 그대로 남는다
+    MySQL 쪽은 UNIQUE(user_id, place_name)가 최종 판정이다. 여기서 놓친 경우도 DB가 409로 막는다.
+    """
+    folded = unicodedata.normalize("NFKC", name).casefold().translate(_LIGATURES)
+    decomposed = unicodedata.normalize("NFD", folded)
     stripped = "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
-    return unicodedata.normalize("NFC", stripped).casefold()
+    return unicodedata.normalize("NFC", stripped)

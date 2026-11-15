@@ -18,7 +18,9 @@ from app.favorites.errors import (
     FavoriteError,
     FavoriteLimitError,
     FavoriteNameTakenError,
+    FavoriteOwnerMissingError,
 )
+from app.auth.errors import LOGIN_REQUIRED
 from app.favorites.stores import MAX_FAVORITES, Favorite, FavoriteDraft, FavoriteStore
 from app.favorites.validation import Coordinates, validate_changes, validate_new
 
@@ -57,6 +59,8 @@ class FavoriteService:
             raise FavoriteError(409, NAME_TAKEN) from None
         except FavoriteLimitError:
             raise FavoriteError(409, LIMIT_REACHED) from None
+        except FavoriteOwnerMissingError:
+            raise FavoriteError(401, LOGIN_REQUIRED) from None
 
     def update(self, user_id: int, favorite_id: int | None, payload: dict[str, Any]) -> Favorite:
         if favorite_id is None:
@@ -76,9 +80,18 @@ class FavoriteService:
 
 
 def create_favorite_store(store: str, pool=None) -> FavoriteStore | None:
-    """AUTH_STORE에 맞는 즐겨찾기 저장소. mysql은 2단계에서 구현한다 (그때까지 None → 즐겨찾기 API는 503)."""
+    """AUTH_STORE에 맞는 즐겨찾기 저장소. mysql은 factory가 만든 연결 풀(회원 저장소와 같은 풀)을 쓴다.
+
+    None을 돌려주면 즐겨찾기 API는 503이다 (알 수 없는 저장소 이름 등. 설정 검사에서 먼저 막힌다).
+    """
     if store == "memory":
         from app.favorites.stores import MemoryFavoriteStore
 
         return MemoryFavoriteStore()
+    if store == "mysql":
+        if pool is None:
+            raise ValueError("AUTH_STORE=mysql 즐겨찾기 저장소에는 연결 풀이 필요합니다.")
+        from app.favorites.mysql_stores import MySQLFavoriteStore
+
+        return MySQLFavoriteStore(pool)
     return None
