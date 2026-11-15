@@ -1,6 +1,7 @@
 """오류를 docs/api-spec.md의 형식 { "message": "..." }으로 바꾼다.
 
 - 입력 검증 실패: 400. 필드별 한국어 문장
+- AuthError(회원 API): 정해 둔 상태 코드와 문구 그대로 (회원 입력 검증은 app/auth/validation.py가 직접 한다)
 - DepartureError(사용자 입력·조건 문제): 4xx. 엔진의 한국어 메시지를 그대로 쓴다
 - RouteProviderError(길찾기 API 문제): 5xx. 원래 메시지는 서버 로그에만 남기고, 사용자에게는
   내부 정보(환경변수 이름, HTTP 코드, 카카오 응답 문구)가 없는 문장만 보낸다
@@ -14,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.auth.errors import AuthError
 from app.departure import (
     ArrivalTimePassedError,
     DepartureError,
@@ -137,6 +139,11 @@ async def handle_http_error(request: Request, error: StarletteHTTPException) -> 
     return JSONResponse(status_code=error.status_code, content={"message": message}, headers=error.headers)
 
 
+async def handle_auth_error(request: Request, error: AuthError) -> JSONResponse:
+    # 인증 문구는 app/auth/errors.py에서 정한 사용자용 문장이다. 그대로 보낸다.
+    return JSONResponse(status_code=error.status, content={"message": error.message}, headers=error.headers)
+
+
 async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     logger.exception("처리하지 못한 오류: %s %s", request.method, request.url.path)
     return _message(500, INTERNAL_ERROR_MESSAGE)
@@ -144,6 +151,7 @@ async def handle_unexpected_error(request: Request, error: Exception) -> JSONRes
 
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(RequestValidationError, handle_validation_error)
+    app.add_exception_handler(AuthError, handle_auth_error)
     app.add_exception_handler(DepartureError, handle_departure_error)
     app.add_exception_handler(RouteProviderError, handle_route_provider_error)
     app.add_exception_handler(StarletteHTTPException, handle_http_error)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app.auth.service import AUTH_STORES
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
 
 ROUTE_PROVIDERS = ("mock", "kakao")
@@ -35,6 +36,9 @@ class Settings:
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     route_compare_options: tuple[str, ...] = tuple(ROUTE_OPTIONS)  # 경로 비교에 쓸 옵션과 카드 순서
     route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
+    auth_store: str = "memory"  # 회원·세션 저장소. memory(재시작하면 사라짐) | mysql(2단계)
+    cookie_secure: bool = True  # 세션 쿠키의 Secure 속성. 로컬 http에서 쿠키가 안 실리면 false
+    secret_key: str | None = field(default=None, repr=False)  # 서명용 비밀 값 (3단계 OAuth state 쿠키)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -51,6 +55,9 @@ class Settings:
             cors_origins=_cors_origins_env(env),
             route_compare_options=_route_compare_options_env(env),
             route_compare_max_calls=_int_env(env, "ROUTE_COMPARE_MAX_CALLS", cls.route_compare_max_calls),
+            auth_store=_auth_store_env(env),
+            cookie_secure=_bool_env(env, "COOKIE_SECURE", cls.cookie_secure),
+            secret_key=env.get("SECRET_KEY", "").strip() or None,
         )
 
     def solver_config(self) -> SolverConfig:
@@ -87,6 +94,28 @@ def _int_env(env: Mapping[str, str], name: str, default: int) -> int:
         return int(value)
     except ValueError:
         raise ValueError(f"{name}는 정수여야 합니다: {value}") from None
+
+
+TRUE_VALUES = ("1", "true", "yes", "on")
+FALSE_VALUES = ("0", "false", "no", "off")
+
+
+def _bool_env(env: Mapping[str, str], name: str, default: bool) -> bool:
+    value = env.get(name, "").strip().lower()
+    if not value:
+        return default
+    if value in TRUE_VALUES:
+        return True
+    if value in FALSE_VALUES:
+        return False
+    raise ValueError(f"{name}는 true 또는 false여야 합니다: {value}")
+
+
+def _auth_store_env(env: Mapping[str, str]) -> str:
+    store = env.get("AUTH_STORE", "").strip().lower() or "memory"
+    if store not in AUTH_STORES:
+        raise ValueError(f"AUTH_STORE는 {', '.join(AUTH_STORES)} 중 하나여야 합니다: {store}")
+    return store
 
 
 def _cors_origins_env(env: Mapping[str, str]) -> tuple[str, ...]:
