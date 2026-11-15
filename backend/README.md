@@ -11,10 +11,11 @@ backend/
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
 │   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
 │   ├── db.py                  # MySQL 연결 풀 (PyMySQL, utf8mb4, time_zone +09:00), KST 시각 변환
-│   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한
+│   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한, OAuth(Google·Mock), state 쿠키
 │   ├── api/                   # 웹 API (FastAPI)
 │   │   ├── factory.py         # create_app: Provider·Solver·AuthService를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
 │   │   ├── auth.py            # /api/auth/signup·login·logout·me, require_user·optional_user 의존성
+│   │   ├── oauth.py           # /api/auth/{provider}/start·callback (소셜 로그인), 접근 로그의 콜백 쿼리 가림
 │   │   ├── origin.py          # POST·PATCH·DELETE 출처(Origin) 검사 (CSRF 방어)
 │   │   ├── departure.py       # POST /api/departure
 │   │   ├── routes.py          # GET /api/places, GET /api/routes (경로 비교), 장소 확정, 응답 캐시
@@ -86,7 +87,10 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `DB_SSL_CA` | 없음 | RDS CA 번들 경로. 주면 TLS로 연결한다 |
 | `TEST_DB_NAME` | 없음 | `pytest -m mysql_live` 전용 DB (예: `gilit_test`). 테스트가 회원 데이터를 지우므로 `_test`로 끝나고 `DB_NAME`과 달라야 한다 |
 | `COOKIE_SECURE` | `true` | 세션 쿠키(`gilit_session`)의 Secure 속성. 운영은 반드시 `true`. 로컬 http에서 쿠키가 안 실리면 `false` |
-| `SECRET_KEY` | 없음 | 서명용 비밀 값. 3단계(OAuth state 쿠키)부터 필수 |
+| `SECRET_KEY` | 없음 | 서명용 비밀 값. 소셜 로그인(OAuth state 쿠키 `gilit_oauth` 서명)에 필수 |
+| `OAUTH_REDIRECT_BASE` | 없음 | 소셜 로그인 콜백 주소의 앞부분 (예: `http://localhost:8000`, 경로 없이). 콜백은 `{값}/api/auth/{google\|kakao}/callback`이고 제공자 콘솔에 똑같이 등록한다 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google OAuth 클라이언트 (웹 애플리케이션). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `OAUTH_MOCK` | `false` | `1`이면 외부 호출 없는 가짜 소셜 로그인 (start가 곧바로 콜백으로 이동, 고정 프로필). `AUTH_STORE=memory`일 때만 켜진다 |
 
 테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`나 `AUTH_STORE=mysql`을 두어도 기본 테스트는 실제 API와 DB를 쓰지 않는다. 회원 저장소 계약 테스트를 MySQL에서 돌리려면 `pytest -m mysql_live`를 쓴다 (`TEST_DB_NAME` DB에 `db/schema.sql`이 적용돼 있어야 한다).
 

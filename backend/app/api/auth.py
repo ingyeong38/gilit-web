@@ -53,7 +53,7 @@ def user_response(user: User, provider: str) -> UserResponse:
     return UserResponse(id=str(user.id), name=user.nickname, email=user.email, provider=provider)
 
 
-def _cookie_secure(request: Request) -> bool:
+def cookie_secure(request: Request) -> bool:
     return request.app.state.settings.cookie_secure
 
 
@@ -63,14 +63,14 @@ def set_session_cookie(request: Request, response: Response, token: str) -> None
         token,
         max_age=int(SESSION_TTL.total_seconds()),
         path="/",
-        secure=_cookie_secure(request),
+        secure=cookie_secure(request),
         httponly=True,
         samesite="lax",
     )
 
 
 def clear_session_cookie(request: Request, response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/", secure=_cookie_secure(request), httponly=True, samesite="lax")
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=cookie_secure(request), httponly=True, samesite="lax")
 
 
 @router.post(

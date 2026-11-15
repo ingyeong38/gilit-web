@@ -78,6 +78,12 @@ class MemoryBackend:
     def session_count(self) -> int:
         return len(self.sessions)
 
+    def user_count(self) -> int:
+        return self.users.count()
+
+    def social_links(self) -> list[tuple[str, str, int]]:
+        return sorted(self.users.social_links())
+
     def restarted(self) -> "MemoryBackend":
         """서버를 다시 시작한 것처럼 새 저장소를 만든다. 메모리는 데이터가 사라진다."""
         return MemoryBackend()
@@ -132,6 +138,14 @@ class MySQLBackend:
     def session_count(self) -> int:
         (row,) = self.execute("SELECT COUNT(*) AS n FROM sessions")
         return int(row["n"])
+
+    def user_count(self) -> int:
+        (row,) = self.execute("SELECT COUNT(*) AS n FROM users")
+        return int(row["n"])
+
+    def social_links(self) -> list[tuple[str, str, int]]:
+        rows = self.execute("SELECT provider, provider_user_id, user_id FROM social_accounts")
+        return sorted((r["provider"], r["provider_user_id"], int(r["user_id"])) for r in rows)
 
     def restarted(self) -> "MySQLBackend":
         """서버를 다시 시작한 것처럼 새 연결 풀과 저장소를 만든다. DB 데이터는 남는다."""

@@ -133,8 +133,17 @@ def _close_quietly(conn) -> None:
         pass
 
 
-def is_duplicate_entry(error: Exception) -> bool:
-    return isinstance(error, pymysql.err.IntegrityError) and bool(error.args) and error.args[0] == DUPLICATE_ENTRY
+def is_duplicate_entry(error: Exception, key: str | None = None) -> bool:
+    """UNIQUE 위반(1062)인지. key를 주면 그 인덱스 이름의 위반인지까지 본다.
+
+    MySQL 8 메시지: "Duplicate entry 'x' for key 'users.uq_users_email'"
+    """
+    if not (isinstance(error, pymysql.err.IntegrityError) and error.args and error.args[0] == DUPLICATE_ENTRY):
+        return False
+    if key is None:
+        return True
+    message = str(error.args[1]) if len(error.args) > 1 else ""
+    return message.endswith(f".{key}'") or message.endswith(f"'{key}'")
 
 
 def to_db(value: datetime | None) -> datetime | None:

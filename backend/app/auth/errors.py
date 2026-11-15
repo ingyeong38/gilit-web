@@ -27,3 +27,11 @@ class AuthError(Exception):
 
 class EmailAlreadyExistsError(Exception):
     """저장소가 이메일 UNIQUE 위반을 알릴 때 쓴다 (MySQL은 오류 1062)."""
+
+
+class SocialAccountExistsError(Exception):
+    """같은 (provider, provider_user_id)가 이미 연결돼 있을 때 (동시 첫 로그인). 다시 조회해서 로그인한다."""
+
+
+class SocialEmailConflictError(Exception):
+    """소셜 첫 로그인의 검증된 이메일이 기존 계정과 겹친다. 계정을 만들거나 연결하지 않는다 (설계 3-2)."""

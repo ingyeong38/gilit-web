@@ -1,7 +1,7 @@
 """사용자·세션 저장소. 프로토콜과 메모리 구현.
 
 AUTH_STORE=memory(기본)는 서버를 다시 시작하면 사라진다. 개발과 테스트용이다.
-AUTH_STORE=mysql은 2단계에서 같은 프로토콜로 구현한다 (db/schema.sql의 users, sessions).
+AUTH_STORE=mysql은 같은 프로토콜의 MySQL 구현이다 (mysql_stores.py, db/schema.sql의 users, social_accounts, sessions).
 메모리 구현은 웹 서버의 스레드풀에서 동시에 불릴 수 있으므로 잠금을 건다.
 """
 
@@ -10,9 +10,10 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Protocol
 
-from app.auth.errors import EmailAlreadyExistsError
+from app.auth.errors import EmailAlreadyExistsError, SocialAccountExistsError
 
 LOGIN_PROVIDERS = ("email", "google", "kakao")
+SOCIAL_PROVIDERS = ("google", "kakao")
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,20 @@ class UserStore(Protocol):
 
     def get_by_email(self, email: str) -> User | None: ...
 
+    def get_by_social(self, provider: str, provider_user_id: str) -> User | None:
+        """social_accounts의 (provider, provider_user_id)에 연결된 사용자."""
+        ...
+
+    def create_social_user(
+        self, provider: str, provider_user_id: str, email: str | None, nickname: str, now: datetime
+    ) -> User:
+        """소셜 가입자(password_hash 없음)와 소셜 연결을 한 트랜잭션으로 만든다. agreed_at은 now.
+
+        같은 소셜 계정이 이미 있으면 SocialAccountExistsError, 같은 이메일이 있으면 EmailAlreadyExistsError.
+        어느 쪽이든 아무것도 남기지 않는다 (먼저 조회하지 않고 UNIQUE 위반으로 판단한다).
+        """
+        ...
+
     def record_login(self, user_id: int, now: datetime) -> None:
         """last_login_at을 갱신한다."""
         ...
@@ -73,6 +88,7 @@ class MemoryUserStore:
         self._lock = threading.Lock()
         self._users: dict[int, User] = {}
         self._by_email: dict[str, int] = {}
+        self._by_social: dict[tuple[str, str], int] = {}
         self._next_id = 1
 
     def create_email_user(self, email: str, password_hash: str, nickname: str, now: datetime) -> User:
@@ -112,6 +128,37 @@ class MemoryUserStore:
         with self._lock:
             user_id = self._by_email.get(email)
             return self._users.get(user_id) if user_id is not None else None
+
+    def get_by_social(self, provider: str, provider_user_id: str) -> User | None:
+        with self._lock:
+            user_id = self._by_social.get((provider, provider_user_id))
+            return self._users.get(user_id) if user_id is not None else None
+
+    def create_social_user(
+        self, provider: str, provider_user_id: str, email: str | None, nickname: str, now: datetime
+    ) -> User:
+        with self._lock:
+            if (provider, provider_user_id) in self._by_social:
+                raise SocialAccountExistsError(provider)
+            if email is not None and email in self._by_email:
+                raise EmailAlreadyExistsError(email)
+            user = User(id=self._next_id, email=email, nickname=nickname, agreed_at=now, created_at=now)
+            self._next_id += 1
+            self._users[user.id] = user
+            if email is not None:
+                self._by_email[email] = user.id
+            self._by_social[(provider, provider_user_id)] = user.id
+            return user
+
+    def social_links(self) -> list[tuple[str, str, int]]:
+        """테스트용: (provider, provider_user_id, user_id) 목록."""
+        with self._lock:
+            return [(p, pid, uid) for (p, pid), uid in self._by_social.items()]
+
+    def count(self) -> int:
+        """테스트용: 사용자 수."""
+        with self._lock:
+            return len(self._users)
 
     def record_login(self, user_id: int, now: datetime) -> None:
         with self._lock:

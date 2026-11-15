@@ -5,9 +5,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
+from app.auth.oauth import GoogleOAuthClient, MockOAuthClient, OAuthClient
 from app.auth.service import AUTH_STORES
 from app.db import MySQLConfig
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
@@ -47,6 +49,11 @@ class Settings:
     db_user: str | None = None
     db_password: str | None = field(default=None, repr=False)
     db_ssl_ca: str | None = None  # RDS CA 번들 경로. 주면 TLS로 연결한다
+    # 소셜 로그인 (3단계 Google). 콜백 주소는 {oauth_redirect_base}/api/auth/{provider}/callback
+    google_client_id: str | None = None
+    google_client_secret: str | None = field(default=None, repr=False)
+    oauth_redirect_base: str | None = None  # 예: http://localhost:8000. 제공자 콘솔에 등록한 주소와 같아야 한다
+    oauth_mock: bool = False  # 외부 호출 없는 가짜 소셜 로그인. AUTH_STORE=memory에서만 쓸 수 있다
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -72,6 +79,10 @@ class Settings:
             db_user=env.get("DB_USER", "").strip() or None,
             db_password=env.get("DB_PASSWORD") or None,  # 비밀번호는 공백도 값일 수 있어 자르지 않는다
             db_ssl_ca=env.get("DB_SSL_CA", "").strip() or None,
+            google_client_id=env.get("GOOGLE_CLIENT_ID", "").strip() or None,
+            google_client_secret=env.get("GOOGLE_CLIENT_SECRET", "").strip() or None,
+            oauth_redirect_base=_redirect_base_env(env),
+            oauth_mock=_bool_env(env, "OAUTH_MOCK", cls.oauth_mock),
         )
 
     def mysql_config(self) -> MySQLConfig:
@@ -113,6 +124,43 @@ def create_route_provider(settings: Settings) -> RouteProvider:
     if not settings.kakao_rest_api_key:
         raise ValueError("ROUTE_PROVIDER=kakao에는 KAKAO_REST_API_KEY 환경변수가 필요합니다.")
     return KakaoRouteProvider(settings.kakao_rest_api_key, cache_ttl_sec=settings.route_cache_ttl_sec)
+
+
+def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:
+    """설정된 소셜 로그인 제공자. 아무것도 설정하지 않으면 빈 dict (소셜 로그인은 auth_result=failed).
+
+    설정이 반쯤만 있으면 앱 시작에서 빠진 환경변수 이름을 알려 준다 (값은 출력하지 않는다).
+    """
+    if settings.oauth_mock:
+        if settings.auth_store != "memory":
+            raise ValueError("OAUTH_MOCK은 AUTH_STORE=memory일 때만 쓸 수 있습니다 (가짜 계정이 DB에 남지 않게).")
+        if not settings.secret_key:
+            raise ValueError("OAUTH_MOCK에도 SECRET_KEY 환경변수가 필요합니다 (state 쿠키 서명).")
+        return {"google": MockOAuthClient("google")}
+
+    clients: dict[str, OAuthClient] = {}
+    if settings.google_client_id or settings.google_client_secret:
+        required = {
+            "GOOGLE_CLIENT_ID": settings.google_client_id,
+            "GOOGLE_CLIENT_SECRET": settings.google_client_secret,
+            "SECRET_KEY": settings.secret_key,
+            "OAUTH_REDIRECT_BASE": settings.oauth_redirect_base,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"Google 로그인에는 {', '.join(missing)} 환경변수가 필요합니다.")
+        clients["google"] = GoogleOAuthClient(settings.google_client_id, settings.google_client_secret)
+    return clients
+
+
+def _redirect_base_env(env: Mapping[str, str]) -> str | None:
+    value = env.get("OAUTH_REDIRECT_BASE", "").strip().rstrip("/")
+    if not value:
+        return None
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.netloc or parts.path or parts.query:
+        raise ValueError(f"OAUTH_REDIRECT_BASE는 http(s)://호스트[:포트] 형식이어야 합니다 (경로 없이): {value}")
+    return value
 
 
 def _int_env(env: Mapping[str, str], name: str, default: int) -> int:
