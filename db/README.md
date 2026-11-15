@@ -4,23 +4,30 @@ MySQL 8.0.16 이상 (AWS RDS for MySQL 8), 문자셋 `utf8mb4`, 엔진 InnoDB.
 
 | 파일 | 내용 |
 | --- | --- |
-| `schema.sql` | 테이블 5개. `CREATE TABLE IF NOT EXISTS`라 다시 실행해도 된다 |
+| `schema.sql` | 테이블 6개의 **최종 구조**. `CREATE TABLE IF NOT EXISTS`라 다시 실행해도 된다 |
+| `migrations/NNN_*.sql` | 이미 만든 DB에 적용할 구조 변경. 번호 순서대로 실행한다 |
 | `seed.sql` | 개발·테스트용 더미 데이터. 운영 DB에는 실행하지 않는다 |
 
-테이블 정의는 `schema.sql` 한 곳에만 둔다. 이미 만든 테이블의 구조를 바꿀 때는 `schema.sql`을 고치고, 운영 DB에 적용할 `ALTER TABLE` 문을 따로 작성해 실행한다 (`CREATE TABLE IF NOT EXISTS`는 이미 있는 테이블을 바꾸지 않는다).
+테이블 정의는 `schema.sql`이 항상 최종 상태다. 구조를 바꿀 때는 `schema.sql`을 고치고, 같은 변경을 `migrations/`에 다음 번호로 남긴다 (`CREATE TABLE IF NOT EXISTS`는 이미 있는 테이블을 바꾸지 않는다). 마이그레이션은 다시 실행해도 결과가 같게 쓴다.
+
+| 번호 | 내용 |
+| --- | --- |
+| `001_users_email_nullable.sql` | `users.email` NULL 허용 (카카오 가입자는 이메일이 없을 수 있다) |
+| `002_sessions.sql` | 로그인 세션 테이블 `sessions` |
 
 ## ERD
 
 ```mermaid
 erDiagram
   users ||--o{ social_accounts : "소셜 연결"
+  users ||--o{ sessions : "로그인 세션"
   users ||--o{ favorite_places : "즐겨찾기"
   users |o--o{ search_history : "검색 (비로그인은 NULL)"
   users |o--o{ visit_logs : "방문 (비로그인은 NULL)"
 
   users {
     BIGINT id PK
-    VARCHAR email UK
+    VARCHAR email UK "NULL: 이메일 없는 소셜 가입자"
     VARCHAR password_hash "NULL: 소셜 가입자"
     VARCHAR nickname
     DATETIME agreed_at
@@ -33,6 +40,14 @@ erDiagram
     VARCHAR provider "google | kakao"
     VARCHAR provider_user_id
     DATETIME created_at
+  }
+  sessions {
+    CHAR token_hash PK "SHA-256(쿠키 값)"
+    BIGINT user_id FK
+    VARCHAR login_provider "email | google | kakao"
+    DATETIME created_at
+    DATETIME last_seen_at
+    DATETIME expires_at
   }
   favorite_places {
     BIGINT id PK
@@ -73,13 +88,14 @@ erDiagram
 
 ### users
 
-회원. 이메일 가입자와 소셜 가입자가 함께 있고, 계정은 이메일 하나당 하나다.
+회원. 이메일 가입자와 소셜 가입자가 함께 있고, 이메일이 있는 계정은 이메일 하나당 하나다.
 
-- `email`: UNIQUE. 앞뒤 공백을 지우고 소문자로 바꿔 저장한다. 콜레이션(`utf8mb4_0900_ai_ci`)도 대소문자를 구분하지 않는다.
+- `email`: UNIQUE, NULL 허용. 앞뒤 공백을 지우고 소문자로 바꿔 저장한다. 콜레이션(`utf8mb4_0900_ai_ci`)도 대소문자를 구분하지 않는다. 카카오처럼 이메일을 주지 않거나 검증되지 않은 이메일을 주는 소셜 가입자는 NULL이다 (UNIQUE는 NULL을 여러 개 허용한다). 같은 이메일 가입은 INSERT의 UNIQUE 위반(1062)으로 막으므로 동시에 가입해도 하나만 성공한다.
 - `password_hash`: bcrypt(cost 12 이상) 해시. 소셜로만 가입한 사용자는 NULL이다. 평문 비밀번호는 어디에도 저장하지 않는다.
 - `agreed_at`: 필수 약관(이용약관·개인정보 처리방침)에 동의한 시각
 - `last_login_at`: 로그인할 때마다 갱신한다 (이메일·소셜 공통)
-- 가입 방법은 컬럼으로 따로 두지 않는다. `password_hash`가 있으면 이메일 가입, 없으면 `social_accounts`의 제공자로 판단한다.
+- 가입 방법은 컬럼으로 따로 두지 않는다. `password_hash`가 있으면 이메일 가입, 없으면 `social_accounts`의 제공자로 판단한다. API 응답의 `provider`는 가입 방법이 아니라 이번 세션의 로그인 방식(`sessions.login_provider`)이다.
+- 소셜 첫 로그인으로 가입할 때 `users`와 `social_accounts`를 한 트랜잭션으로 넣는다. `email`에는 제공자가 검증했다고 알려 준 이메일만 넣고(아니면 NULL), 그 이메일이 이미 있으면 계정을 만들지 않는다 (자동 연결 없음, `docs/api-spec.md` "소셜 계정 처리").
 
 ### social_accounts
 
@@ -87,6 +103,17 @@ erDiagram
 
 - `provider`: `google` 또는 `kakao` (CHECK 제약)
 - `provider_user_id`: Google은 `sub`, 카카오는 회원번호
+
+### sessions
+
+로그인 세션 (서버 세션 쿠키 `gilit_session`). 서버(`backend/app/auth/mysql_stores.py`)만 읽고 쓴다. 사용자를 지우면 함께 지워진다.
+
+- `token_hash`: 쿠키 값의 SHA-256 (16진수 64자). 쿠키 원문은 저장하지 않으므로 DB가 유출돼도 쿠키를 만들 수 없다.
+- `login_provider`: 이번 세션의 로그인 방식 (`email` | `google` | `kakao`, CHECK 제약). API 사용자 객체의 `provider`다.
+- `expires_at`: 로그인 시각 + 14일 고정. 사용해도 늘어나지 않는다. 만료된 행은 서버가 로그인할 때 지운다.
+- `last_seen_at`: 마지막 사용 시각. 1시간에 한 번까지만 갱신한다.
+- 로그인할 때마다 새 행을 만들고, 그 브라우저의 이전 세션 행은 지운다 (세션 고정 방지).
+- `visit_logs.session_id`(방문자 쿠키)와는 다른 값이다.
 
 ### favorite_places
 
@@ -119,6 +146,10 @@ erDiagram
 | social_accounts | `uq_social_provider_user` (provider, provider_user_id) | 소셜 로그인 조회, 중복 연결 방지 |
 | social_accounts | `uq_social_user_provider` (user_id, provider) | 사용자당 제공자 하나, FK 인덱스 |
 | social_accounts | `fk_social_user` → users, CASCADE | |
+| sessions | PK (token_hash) | 쿠키로 세션 조회 |
+| sessions | `idx_sessions_user` (user_id) | 사용자별 세션, FK 인덱스 |
+| sessions | `idx_sessions_expires` (expires_at) | 만료 세션 정리 |
+| sessions | `fk_sessions_user` → users, CASCADE | |
 | favorite_places | `idx_favorite_user` (user_id) | 내 즐겨찾기 목록 |
 | favorite_places | `fk_favorite_user` → users, CASCADE | |
 | search_history | `idx_history_user_created` (user_id, created_at) | 내 검색 기록 최신순 |
@@ -137,6 +168,67 @@ erDiagram
 - 또는 RDS 파라미터 그룹에서 `time_zone`을 `Asia/Seoul`로 바꾼다
 
 API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.md`).
+
+백엔드(`backend/app/db.py`)는 연결할 때마다 `utf8mb4`와 `SET time_zone = '+09:00'`을 적용하고, 시각을 한국 시각(초 단위)으로 바꿔 저장한다. 그래서 로컬 MySQL과 RDS 어느 쪽이든 파라미터 그룹을 바꾸지 않아도 된다.
+
+## 로컬 DB 준비 (각자 개발용)
+
+각자 PC의 MySQL 8로 개발하고, 배포할 때는 `.env`의 `DB_*` 값만 RDS로 바꾼다. 서버 코드는 root가 아니라 서비스 계정 `gilit_app`(SELECT, INSERT, UPDATE, DELETE만)을 쓴다. 테이블을 만들고 바꾸는 일(이 문서의 SQL 파일 실행)은 관리자 계정(root)으로 한다.
+
+명령은 저장소 루트(`gilit-web/`)에서 실행한다. Windows에서 `mysql`이 PATH에 없으면 `"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"`로 쓴다.
+
+1. 관리자 계정으로 DB 두 개와 서비스 계정을 만든다. `gilit`은 개발 서버용, `gilit_test`는 `pytest -m mysql_live`용이다 (테스트가 회원 데이터를 지운다).
+
+   ```bash
+   mysql -u root -p
+   ```
+
+   ```sql
+   CREATE DATABASE IF NOT EXISTS gilit      CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+   CREATE DATABASE IF NOT EXISTS gilit_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+   CREATE USER IF NOT EXISTS 'gilit_app'@'localhost' IDENTIFIED BY '<비밀번호>';
+   GRANT SELECT, INSERT, UPDATE, DELETE ON gilit.*      TO 'gilit_app'@'localhost';
+   GRANT SELECT, INSERT, UPDATE, DELETE ON gilit_test.* TO 'gilit_app'@'localhost';
+   ```
+
+2. 두 DB에 스키마를 적용한다 (관리자 계정).
+
+   - **새 DB**: `schema.sql`만 실행한다. 이미 최종 구조라 마이그레이션은 필요 없다.
+
+     ```bash
+     mysql -u root -p --default-character-set=utf8mb4 gilit      -e "source db/schema.sql"
+     mysql -u root -p --default-character-set=utf8mb4 gilit_test -e "source db/schema.sql"
+     ```
+
+   - **`migrations/` 001·002 이전의 `schema.sql`로 이미 만든 DB** (`sessions` 테이블이 없는 DB): `migrations/`를 번호 순서대로 실행한다. 다시 실행해도 된다.
+
+     ```bash
+     mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/001_users_email_nullable.sql"
+     mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/002_sessions.sql"
+     ```
+
+   Git Bash·macOS·Linux는 `-e "source ..."` 대신 `< db/schema.sql`도 된다. PowerShell은 `<` 리디렉션이 안 되므로 `-e "source ..."`를 쓴다.
+
+3. `backend/.env`(또는 루트 `.env`)에 접속 정보를 넣는다. 커밋하지 않는다.
+
+   ```dotenv
+   AUTH_STORE=mysql
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_NAME=gilit
+   DB_USER=gilit_app
+   DB_PASSWORD=<1번의 비밀번호>
+   TEST_DB_NAME=gilit_test
+   ```
+
+4. 확인한다 (`backend/`에서).
+
+   ```bash
+   venv/Scripts/python -m pytest -m mysql_live      # gilit_test에서 회원 저장소 계약 테스트
+   venv/Scripts/python scripts/seed_dev_users.py    # gilit에 로그인 테스트 계정 dev1·dev2@example.com (비밀번호 gilit1234)
+   ```
+
+   `seed.sql`의 계정(tester@example.com 등)은 더미 해시라 로그인할 수 없다. 이메일 로그인을 시험할 때는 `seed_dev_users.py`의 계정이나 회원가입 API로 만든 계정을 쓴다.
 
 ## RDS에서 실행하기
 
@@ -157,11 +249,25 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
    ```
 
    PowerShell은 `<` 리디렉션이 안 되므로 `mysql ... gilit -e "source db/schema.sql"`을 쓰거나, MySQL Workbench에서 파일을 열어 실행한다.
+   `migrations/` 001·002 이전의 `schema.sql`로 이미 만든 RDS라면 `schema.sql` 대신 `migrations/`를 번호 순서대로 실행한다.
 
-4. 확인한다.
+4. 서버의 `.env`를 RDS 값으로 바꾼다. 코드는 바꾸지 않는다.
+
+   ```dotenv
+   AUTH_STORE=mysql
+   DB_HOST=<RDS 엔드포인트>
+   DB_NAME=gilit
+   DB_USER=gilit_app
+   DB_PASSWORD=<비밀번호>
+   DB_SSL_CA=<RDS CA 번들 경로>   # TLS 연결 (AWS의 global-bundle.pem)
+   COOKIE_SECURE=true
+   OAUTH_REDIRECT_BASE=https://<서비스 도메인>   # 소셜 로그인 콜백. Google·카카오 콘솔에도 같은 주소를 등록한다
+   ```
+
+5. 확인한다.
 
    ```sql
-   SHOW TABLES;                       -- 5개
+   SHOW TABLES;                       -- 6개
    SHOW CREATE TABLE search_history;  -- FK, CHECK, 인덱스 확인
    SELECT TABLE_NAME, CONSTRAINT_NAME, REFERENCED_TABLE_NAME
    FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = 'gilit';

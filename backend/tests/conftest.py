@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.departure import KST, Coordinate, RouteProvider, TravelMode
+from tests.auth_backends import make_backend, mysql_live
 
 GIMHAE_CITY_HALL = Coordinate(35.2285, 128.8894)
 DONGEUI_UNIV = Coordinate(35.1441, 129.0336)
@@ -59,6 +60,22 @@ ENGINE_ENV_VARS = (
     "CORS_ORIGINS",
     "ROUTE_COMPARE_OPTIONS",
     "ROUTE_COMPARE_MAX_CALLS",
+    "AUTH_STORE",
+    "COOKIE_SECURE",
+    "SECRET_KEY",
+    "DB_HOST",
+    "DB_PORT",
+    "DB_NAME",
+    "DB_USER",
+    "DB_PASSWORD",
+    "DB_SSL_CA",
+    "TEST_DB_NAME",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "OAUTH_REDIRECT_BASE",
+    "OAUTH_MOCK",
+    "KAKAO_LOGIN_CLIENT_ID",
+    "KAKAO_LOGIN_CLIENT_SECRET",
 )
 
 
@@ -69,6 +86,14 @@ def isolated_env(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr("app.departure.cli.load_env_files", lambda: None)
     monkeypatch.setattr("app.api.factory.load_env_files", lambda: None)
+
+
+@pytest.fixture(params=["memory", pytest.param("mysql", marks=mysql_live)])
+def store_backend(request):
+    """회원 저장소 계약 테스트를 메모리와 MySQL(mysql_live, 기본 실행에서 제외)에서 돌린다 (tests/auth_backends.py)."""
+    backend = make_backend(request.param)
+    yield backend
+    backend.close()
 
 
 @pytest.fixture

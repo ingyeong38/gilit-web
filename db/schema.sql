@@ -3,13 +3,16 @@
 -- 컬럼을 바꿀 때는 ALTER TABLE을 따로 작성한다.
 -- 모든 DATETIME은 한국 시간(KST)이다. 서버는 연결할 때 SET time_zone = '+09:00'을 실행한다 (db/README.md).
 -- 테이블 설명과 API 필드 매핑은 db/README.md, docs/api-spec.md를 본다.
+-- 이 파일은 항상 최종 구조다. 이미 만든 DB는 db/migrations/의 번호 순서대로 적용한다 (db/README.md).
+-- 반영된 마이그레이션: 001_users_email_nullable, 002_sessions
 
 SET NAMES utf8mb4;
 
--- 회원. 이메일 가입자와 소셜 가입자가 함께 있다. 계정은 이메일 하나당 하나다.
+-- 회원. 이메일 가입자와 소셜 가입자가 함께 있다. 이메일이 있는 계정은 이메일 하나당 하나다.
+-- 카카오 가입자는 이메일이 없을 수 있다 (NULL). UNIQUE는 NULL을 여러 개 허용한다.
 CREATE TABLE IF NOT EXISTS users (
   id            BIGINT       NOT NULL AUTO_INCREMENT,
-  email         VARCHAR(255) NOT NULL,              -- 소문자로 바꿔 저장한다
+  email         VARCHAR(255) NULL,                  -- 소문자로 바꿔 저장한다. 소셜 가입자는 NULL일 수 있다
   password_hash VARCHAR(255) NULL,                  -- bcrypt 해시. 소셜 가입자는 NULL
   nickname      VARCHAR(50)  NOT NULL,
   agreed_at     DATETIME     NULL,                  -- 필수 약관(이용약관·개인정보 처리방침) 동의 시각
@@ -31,6 +34,22 @@ CREATE TABLE IF NOT EXISTS social_accounts (
   UNIQUE KEY uq_social_user_provider (user_id, provider),  -- 한 사용자에 같은 제공자 계정은 하나
   CONSTRAINT fk_social_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT chk_social_provider CHECK (provider IN ('google', 'kakao'))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+-- 로그인 세션 (서버 세션 쿠키 gilit_session). 쿠키 값 원문은 저장하지 않고 SHA-256 해시만 둔다.
+-- 만료는 로그인 시각 + 14일 고정이다. 만료된 행은 서버가 로그인할 때 지운다.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash     CHAR(64)    NOT NULL,                       -- SHA-256(쿠키 값)
+  user_id        BIGINT      NOT NULL,
+  login_provider VARCHAR(20) NOT NULL,                       -- 'email' | 'google' | 'kakao' (API의 provider)
+  created_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- 1시간에 한 번까지만 갱신한다
+  expires_at     DATETIME    NOT NULL,
+  PRIMARY KEY (token_hash),
+  KEY idx_sessions_user (user_id),
+  KEY idx_sessions_expires (expires_at),
+  CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT chk_sessions_provider CHECK (login_provider IN ('email', 'google', 'kakao'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
 -- 즐겨찾기 장소

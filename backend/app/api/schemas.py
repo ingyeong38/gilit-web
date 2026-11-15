@@ -14,6 +14,15 @@ class ErrorResponse(BaseModel):
     message: str = Field(description="사용자에게 그대로 보여 줄 수 있는 한국어 문장")
 
 
+class UserResponse(BaseModel):
+    """회원 API가 돌려주는 사용자 객체 (docs/api-spec.md "사용자 객체")."""
+
+    id: str = Field(description="사용자 id. DB BIGINT를 문자열로 내려준다", examples=["1"])
+    name: str = Field(description="닉네임 (users.nickname)", examples=["길잇"])
+    email: str | None = Field(description="소문자 이메일. 카카오 가입자는 없을 수 있다", examples=["user@example.com"])
+    provider: Literal["email", "google", "kakao"] = Field(description="이번 세션의 로그인 방식")
+
+
 class Place(BaseModel):
     """장소 검색 결과의 이름과 좌표를 그대로 받는다."""
 

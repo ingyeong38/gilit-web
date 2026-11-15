@@ -10,8 +10,13 @@ backend/
 │   ├── main.py                # 웹 서버 진입점 (uvicorn app.main:app)
 │   ├── config.py              # 환경변수 설정, RouteProvider 선택
 │   ├── routing.py             # 경로 비교 서비스 (compare_routes), 상세 경로 파싱, 응답 캐시
+│   ├── db.py                  # MySQL 연결 풀 (PyMySQL, utf8mb4, time_zone +09:00), KST 시각 변환
+│   ├── auth/                  # 회원 인증 (SFR-001): 검증, bcrypt, 저장소(memory·mysql), 세션, 횟수 제한, OAuth(Google·카카오·Mock), state 쿠키
 │   ├── api/                   # 웹 API (FastAPI)
-│   │   ├── factory.py         # create_app: Provider·Solver를 한 번 만들고 CORS, 오류 처리, 라우터를 붙인다
+│   │   ├── factory.py         # create_app: Provider·Solver·AuthService를 한 번 만들고 CORS, 출처 검사, 오류 처리, 라우터를 붙인다
+│   │   ├── auth.py            # /api/auth/signup·login·logout·me, require_user·optional_user 의존성
+│   │   ├── oauth.py           # /api/auth/{provider}/start·callback (소셜 로그인), 접근 로그의 콜백 쿼리 가림
+│   │   ├── origin.py          # POST·PATCH·DELETE 출처(Origin) 검사 (CSRF 방어)
 │   │   ├── departure.py       # POST /api/departure
 │   │   ├── routes.py          # GET /api/places, GET /api/routes (경로 비교), 장소 확정, 응답 캐시
 │   │   ├── health.py          # GET /health
@@ -25,9 +30,10 @@ backend/
 │       ├── errors.py          # 예외
 │       └── cli.py             # 실행 예제
 ├── scripts/check_road_routes.py # 수동 실조회 점검 (호출이 많다. 아래 "경로 비교" 참고)
-├── tests/                     # pytest (test_kakao_live.py는 실제 API 호출, 기본 실행에서 제외)
+├── scripts/seed_dev_users.py  # 로컬 DB에 로그인 테스트 계정 만들기 (db/README.md "로컬 DB 준비")
+├── tests/                     # pytest (kakao_live·mysql_live 마커 테스트는 기본 실행에서 제외)
 ├── pyproject.toml             # pytest 설정
-├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn
+├── requirements.txt           # requests, python-dotenv, fastapi, uvicorn, bcrypt, PyMySQL
 └── requirements-dev.txt       # requirements.txt + pytest, httpx2 (TestClient)
 ```
 
@@ -75,9 +81,31 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 요약 조회 캐시와 경로 비교 응답 캐시의 유지 시간(초). `0`이면 캐시하지 않는다 |
 | `ROUTE_COMPARE_OPTIONS` | `recommend,time,distance,free` | 경로 비교에 쓸 옵션. 적은 순서가 카드 순서다 |
 | `ROUTE_COMPARE_MAX_CALLS` | `6` | 경로 비교의 옵션 하나당 소요시간 조회 상한. 상세 경로 조회는 옵션당 1~2회 따로 든다 |
-| `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다 |
+| `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다. `/api/*` POST·PATCH·DELETE의 출처 검사도 이 목록과 같은 호스트만 허용한다 |
+| `AUTH_STORE` | `memory` | 회원·세션 저장소. `memory`는 서버를 다시 시작하면 사라진다. `mysql`은 아래 `DB_*`가 필요하다 |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | 없음 (`DB_PORT`는 `3306`) | MySQL 접속 정보. 로컬 MySQL과 RDS는 이 값만 다르다. 계정은 서비스 계정 `gilit_app` (`db/README.md`) |
+| `DB_SSL_CA` | 없음 | RDS CA 번들 경로. 주면 TLS로 연결한다 |
+| `TEST_DB_NAME` | 없음 | `pytest -m mysql_live` 전용 DB (예: `gilit_test`). 테스트가 회원 데이터를 지우므로 `_test`로 끝나고 `DB_NAME`과 달라야 한다 |
+| `COOKIE_SECURE` | `true` | 세션 쿠키(`gilit_session`)의 Secure 속성. 운영은 반드시 `true`. 로컬 http에서 쿠키가 안 실리면 `false` |
+| `SECRET_KEY` | 없음 | 서명용 비밀 값. 소셜 로그인(OAuth state 쿠키 `gilit_oauth` 서명)에 필수 |
+| `OAUTH_REDIRECT_BASE` | 없음 | 소셜 로그인 콜백 주소의 앞부분 (예: `http://localhost:8000`, 경로 없이). 콜백은 `{값}/api/auth/{google\|kakao}/callback`이고 제공자 콘솔에 똑같이 등록한다 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google OAuth 클라이언트 (웹 애플리케이션). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `KAKAO_LOGIN_CLIENT_ID`, `KAKAO_LOGIN_CLIENT_SECRET` | 없음 | 카카오 로그인 앱의 REST API 키와 Client Secret. 길찾기용 `KAKAO_REST_API_KEY`와 따로 받는다 (같은 앱이면 같은 키). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `OAUTH_MOCK` | `false` | `1`이면 외부 호출 없는 가짜 소셜 로그인 (Google·카카오 모두. start가 곧바로 콜백으로 이동, 고정 프로필, 카카오는 이메일 없음). `AUTH_STORE=memory`일 때만 켜지고, 켜면 실제 Google·카카오 설정은 쓰지 않는다 |
 
-테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`를 두어도 기본 테스트는 실제 API를 부르지 않는다.
+설정이 반쯤만 있으면(예: `KAKAO_LOGIN_CLIENT_ID`만 있음) 서버가 시작하지 않고 빠진 환경변수 이름만 알려 준다. 값은 출력하지 않는다.
+
+테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`, `AUTH_STORE=mysql`, 실제 Google·카카오 키를 두어도 기본 테스트는 실제 API와 DB를 쓰지 않는다. 회원 저장소 계약 테스트를 MySQL에서 돌리려면 `pytest -m mysql_live`를 쓴다 (`TEST_DB_NAME` DB에 `db/schema.sql`이 적용돼 있어야 한다).
+
+### 회원 인증
+
+API 계약(엔드포인트, 쿠키, `auth_result` 값, 소셜 계정 처리 방침)은 `docs/api-spec.md` "인증"과 "회원"에 있다. 코드는 `app/auth/`(도메인)와 `app/api/auth.py`·`oauth.py`(웹)로 나뉜다. 다른 API에서 로그인 사용자가 필요하면 `app/api/auth.py`의 `require_user`(없으면 401) 또는 `optional_user`(없으면 `None`) 의존성을 쓴다.
+
+```bash
+venv/Scripts/python -m pytest                     # 메모리 저장소, 가짜 OAuth 클라이언트 (외부 호출 없음)
+venv/Scripts/python -m pytest -m mysql_live       # 같은 계약 테스트를 MySQL 테스트 DB에서 (db/README.md)
+AUTH_STORE=memory OAUTH_MOCK=1 venv/Scripts/python -m uvicorn app.main:app --port 8000   # 가짜 소셜 로그인으로 서버 실행
+```
 
 ## 출발시각 역산 엔진
 

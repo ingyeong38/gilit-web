@@ -3,7 +3,8 @@
 -- 시각은 실행 시점 기준 상대값이라 이용 통계 화면에서 최근 데이터로 보인다.
 --
 -- 비밀번호: password_hash는 bcrypt 형식만 흉내 낸 더미 문자열이다. 어떤 비밀번호와도 맞지 않으므로
--- 시드 계정으로는 이메일 로그인을 할 수 없다. 로그인 테스트는 회원가입 API로 새 계정을 만든다.
+-- 시드 계정으로는 이메일 로그인을 할 수 없다. 로그인 테스트 계정은 backend/scripts/seed_dev_users.py
+-- (실제 bcrypt 해시, dev1·dev2@example.com)로 만들거나 회원가입 API로 만든다.
 
 SET NAMES utf8mb4;
 SET time_zone = '+09:00';
