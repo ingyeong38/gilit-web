@@ -6,7 +6,7 @@ const strip = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];/mg
 const calls = [];
 const path = [{ lat: 35.2285, lng: 128.8894 }, { lat: 35.2286, lng: 128.8895 }, { lat: 35.2287, lng: 128.8896 }];
 let status = 200;
-const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, GRAPH_API_ENABLED: false, BASE_URL: '/api', URLSearchParams,
+const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, GRAPH_DATA_SOURCE: "api", AbortController, setTimeout, clearTimeout, location: { hostname: "localhost" }, BASE_URL: '/api', URLSearchParams,
   localStorage: { getItem: () => null },
   fetch: async (url) => {
     calls.push(url);
@@ -15,6 +15,7 @@ const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, GRAPH
         : { message: '실제 조회 실패' } };
   },
 });
+vm.runInContext(strip(await readFile(new URL('../js/graphData.js', import.meta.url), 'utf8')), context);
 vm.runInContext(strip(await readFile(new URL('../js/api.js', import.meta.url), 'utf8')), context);
 const routes = await context.getRoutes({ from: '김해시청', to: '동의대학교', arrive: '2026-11-07T09:00:00+09:00', buffer: 10, fromLat: 35.2, fromLng: 128.8 });
 assert.equal(routes[0].path, path);
@@ -23,8 +24,9 @@ assert.equal(calls[0].split('?')[0], '/api/routes');
 assert.equal(new URL(calls[0], 'http://localhost').searchParams.get('from'), '김해시청');
 assert.equal(new URL(calls[0], 'http://localhost').searchParams.get('fromLat'), '35.2');
 const graph = await context.getRouteGraph({});
-assert.equal(graph.length, 0);
-assert.equal(calls.length, 1); // 미구현 그래프 API를 부르지 않는다.
+assert.equal(graph.isExample, false);
+assert.equal(calls.length, 2);
+assert.equal(calls[1].split("?")[0], "/api/routes/graph");
 status = 502;
 await assert.rejects(context.getRoutes({ from: '김해시청', to: '동의대학교' }), (error) => error.status === 502);
 assert(calls.every((url) => !url.includes('/mock/')));

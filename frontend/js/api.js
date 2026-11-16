@@ -1,6 +1,8 @@
+import { GRAPH_DATA_SOURCE } from "/js/config.js";
+import { loadGraphPresentation } from "/js/graphData.js";
 // 서버 호출은 이 파일에만 둔다.
 // USE_MOCK이면 js/mock/*.json을 읽고, 서버가 계산할 값(시각, 필터링, 저장)만 여기서 흉내 낸다.
-import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL, SOCIAL_AUTH_START_URLS, GRAPH_API_ENABLED } from "/js/config.js";
+import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL, SOCIAL_AUTH_START_URLS } from "/js/config.js";
 import { addMinutes, dateOf, daysFrom, minutesBetween, toDateString } from "/js/utils.js";
 
 const MOCK_FAVORITES_KEY = "gilit:mock:favorites";
@@ -62,30 +64,8 @@ export async function getRoutes({ from, to, arrive, buffer, fromLat, fromLng, to
   }));
 }
 
-export async function getRouteGraph({ from, to, arrive } = {}) {
-  if (!USE_MOCK_ROUTES) {
-    if (!GRAPH_API_ENABLED) return [];
-    // 그래프만 10초 제한을 둔다. 오류/지연이 지도와 카드 조회를 막지 않는다.
-    const controller = new AbortController();
-    let timer;
-    try {
-      return await Promise.race([
-        requestJson(buildUrl("/routes/graph", { from, to, arrive }), { signal: controller.signal }),
-        new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new ApiError("그래프 응답이 늦습니다.", 504)); }, 10000); }),
-      ]);
-    } finally { clearTimeout(timer); }
-  }
-
-  const graph = await readMock("routeGraph.json");
-  if (!arrive) return graph;
-  // mock의 마지막 출발시각이 도착 희망 시각에 오도록 옮긴다.
-  return graph.map(({ routeId, points }) => {
-    const shift = minutesBetween(points.at(-1).departTime, arrive);
-    return {
-      routeId,
-      points: points.map((point) => ({ ...point, departTime: addMinutes(point.departTime, shift) })),
-    };
-  });
+export function getRouteGraph(search = {}) {
+  return loadGraphPresentation({ search, mode: GRAPH_DATA_SOURCE, baseUrl: BASE_URL, hostname: location.hostname });
 }
 
 export async function searchPlaces(q = "") {

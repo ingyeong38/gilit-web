@@ -1,5 +1,5 @@
 import { normalizeRouteGraphs } from "/js/components/durationGraph.js?v=card530-20261114-6";
-import { USE_MOCK_ROUTES as USE_MOCK, GRAPH_API_ENABLED } from "/js/config.js";
+import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
 import { addFavorite, getFavorites, getRouteGraph, getRoutes, searchPlaces } from "/js/api.js";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -131,20 +131,24 @@ function setupResults(search, routes, graph = []) {
   let selectedIndex = 0;
   let graphs = normalizeRouteGraphs(graph, routes);
   let graphMessage = "소요시간 그래프를 불러오는 중입니다.";
+  let exampleRoutes = [];
+  let exampleId = null;
+  let isExampleGraph = false;
+  let exampleSelect = null;
   const list = document.getElementById("route-list");
   list.innerHTML = routes.map((route, index) => renderRouteCard(route, index, search)).join("");
   const cards = list.querySelectorAll(".route-card");
   const drawGraph = () => {
-    const route = routes[selectedIndex];
-    const normalized = graphs.get(route.id);
+    const route = isExampleGraph ? exampleRoutes.find(route => route.id === exampleId) : routes[selectedIndex];
+    const normalized = route && graphs.get(route.id);
     const durations = [...graphs.values()].flatMap(value => value.points.map(point => point.durationMin));
     const range = durations.length ? { min: Math.min(...durations), max: Math.max(...durations) } : undefined;
     const chart = document.getElementById("duration-chart");
     chart.setAttribute("aria-busy", String(graphMessage.includes("불러오는 중")));
     renderDurationChart(chart, { points: normalized?.points ?? [], discarded: normalized?.discarded ?? 0,
-      color: ROUTE_COLORS[selectedIndex % ROUTE_COLORS.length], recommendedTime: route.departTime,
-      range, routeName: `${formatRouteLabel(route)} · ${route.name}`, routeId: route.id, isExample: USE_MOCK,
-      routeTag: formatRouteLabel(route), message: graphMessage || "선택 경로와 일치하는 유효한 그래프 데이터가 없습니다." });
+      color: isExampleGraph ? "#2563EB" : ROUTE_COLORS[selectedIndex % ROUTE_COLORS.length], recommendedTime: route?.departTime,
+      range, routeName: isExampleGraph ? `개발용 예시 · 김해시청 → 동의대학교 · ${route?.name ?? "데이터 없음"} · 실제 선택 경로와 무관` : `${formatRouteLabel(route)} · ${route.name}`, routeId: route?.id ?? "", isExample: isExampleGraph,
+      routeTag: route ? formatRouteLabel(route) : "", message: graphMessage || "선택 경로와 일치하는 유효한 그래프 데이터가 없습니다." });
   };
 
   const select = (index) => {
@@ -191,9 +195,23 @@ function setupResults(search, routes, graph = []) {
   });
 
   select(0);
-  return (data, message = "") => {
-    graphs = normalizeRouteGraphs(data, routes);
+  return ({ graphs: data = [], routes: samples = [], isExample = false, message = "" } = {}) => {
+    isExampleGraph = isExample;
+    exampleRoutes = samples;
+    exampleId = samples[0]?.id ?? null;
+    graphs = normalizeRouteGraphs(data, isExample ? samples : routes);
     graphMessage = message;
+    exampleSelect?.remove();
+    if (isExample && samples.length) {
+      exampleSelect = document.createElement("label");
+      exampleSelect.textContent = "개발용 예시 경로 (실제 경로와 별도) ";
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "개발용 예시 그래프 경로");
+      samples.forEach(route => { const option = document.createElement("option"); option.value = route.id; option.textContent = `${route.label} · ${route.name}`; select.append(option); });
+      select.addEventListener("change", () => { exampleId = select.value; drawGraph(); });
+      exampleSelect.append(select);
+      document.getElementById("duration-chart").before(exampleSelect);
+    }
     drawGraph(); // 데이터 수신 때 지도를 다시 생성하거나 선택 경로를 초기화하지 않는다.
   };
 }
@@ -222,10 +240,8 @@ async function init() {
     }
     const updateGraph = setupResults(search, routes);
     // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
-    getRouteGraph({ from: search.from, to: search.to, arrive }).then(graph => {
-      updateGraph(graph, !USE_MOCK && !GRAPH_API_ENABLED ? "그래프 API 연동 대기 중입니다. 경로 카드와 지도는 계속 사용할 수 있습니다." : "");
-    }).catch(() => {
-      updateGraph([], "소요시간 그래프를 불러오지 못했습니다. 경로 카드와 지도는 계속 사용할 수 있습니다.");
+    getRouteGraph({ ...search, arrive }).then(updateGraph).catch(() => {
+      updateGraph({ message: "소요시간 그래프를 불러오지 못했습니다. 실제 경로 카드와 지도는 계속 사용할 수 있습니다." });
     });
   } catch (error) {
     renderMessage({ title: "경로를 불러오지 못했어요", text: error.status >= 400 && error.status < 500 ? error.message : "실제 경로 조회에 실패했어요. 서버와 API 연결을 확인한 뒤 다시 시도해 주세요." });
