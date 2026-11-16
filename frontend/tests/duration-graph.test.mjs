@@ -83,18 +83,19 @@ renderer.renderDurationChart(container,{points:[points[0]]}); assert(container.h
 console.log('PASS: SVG 렌더링·hover/터치/키보드·요약 토글/외부 닫기·표/지점 선택 동기화·모바일 위치·교체 시 이벤트 정리 (모의 DOM)');
 
 let apiCalls=[], response=[], fail=false, aborted=false, timer;
-const api=vm.createContext({ USE_MOCK:false, USE_MOCK_ROUTES:false, GRAPH_API_ENABLED:false, BASE_URL:'/api',URLSearchParams,
-  AbortController:class { constructor(){this.signal={};} abort(){aborted=true;} },
+const api=vm.createContext({ USE_MOCK:false, USE_MOCK_ROUTES:false, GRAPH_DATA_SOURCE:"off", location:{hostname:"localhost"}, BASE_URL:'/api',URLSearchParams,
+  AbortController:class { constructor(){this.signal={};} abort(){aborted=true;this.signal.onabort?.();} },
   setTimeout:fn=>{timer=fn;return 1;}, clearTimeout(){},
   fetch:async(url,options)=>{apiCalls.push({url,options});if(fail) throw Error('offline');return {ok:true,json:async()=>response};}
 });
+vm.runInContext(strip(await read('../js/graphData.js')),api);
 vm.runInContext(strip(await read('../js/api.js')),api);
-assert.equal((await api.getRouteGraph()).length,0);assert.equal(apiCalls.length,0);
-api.GRAPH_API_ENABLED=true; response=routeGraphs;
-assert.equal(await api.getRouteGraph({from:'서울 & 부산',to:'김해',arrive:'2026-11-15T09:00:00+09:00'}),routeGraphs);
+assert.equal((await api.getRouteGraph()).graphs.length,0);assert.equal(apiCalls.length,0);
+api.GRAPH_DATA_SOURCE="api"; response=routeGraphs;
+assert.equal((await api.getRouteGraph({from:'서울 & 부산',to:'김해',arrive:'2026-11-15T09:00:00+09:00'})).graphs,routeGraphs);
 assert.equal(new URL(apiCalls[0].url,'http://localhost').searchParams.get('from'),'서울 & 부산');
 assert(apiCalls[0].options.signal); fail=true; await assert.rejects(api.getRouteGraph());
-api.fetch=()=>new Promise(()=>{}); const late=api.getRouteGraph(); timer(); await assert.rejects(late); assert(aborted);
+api.fetch=(url,options)=>new Promise((resolve,reject)=>{options.signal.onabort=()=>reject(Error("aborted"));}); const late=api.getRouteGraph(); timer(); await assert.rejects(late); assert(aborted);
 console.log('PASS: API 대기 시 무호출·실제 모드 URL/시그널·실패·10초 지연 취소·가짜 데이터 대체 없음');
 
 // 결과 화면의 기존 카드 선택과 지도 호출은 유지하면서 그래프만 갱신한다.
@@ -114,10 +115,10 @@ const update=page.setupResults({date:'2026-11-15',buffer:0},routes);
 assert.equal(maps.length,1);assert(drawings.at(-1).message.includes('불러오는 중'));
 cards[1].events.click();assert.equal(maps.at(-1).route.id,'route-2');assert.equal(drawings.at(-1).routeId,'route-2');
 const mapCount=maps.length;
-update([{routeId:'route-1',points},{routeId:'route-2',points:[points[1]]}]);
+update({graphs:[{routeId:'route-1',points},{routeId:'route-2',points:[points[1]]}]});
 assert.equal(maps.length,mapCount);assert.equal(drawings.at(-1).points.length,1);assert.equal(drawings.at(-1).recommendedTime,points[1].departTime);
 assert.equal(drawings.at(-1).color,'#16A36A');
-update([], '그래프 API 실패');assert.equal(drawings.at(-1).message,'그래프 API 실패');assert.equal(maps.length,mapCount);
+update({message:'그래프 API 실패'});assert.equal(drawings.at(-1).message,'그래프 API 실패');assert.equal(maps.length,mapCount);
 cards[0].events.keydown({target:cards[0],key:'Enter',preventDefault(){}});assert.equal(maps.at(-1).route.id,'route-1');assert.equal(drawings.at(-1).routeId,'route-1');
 for(const path of ['../js/components/durationGraph.js','../js/components/charts.js','../js/pages/result.js','../js/api.js']) new vm.Script(strip(await read(path)));
 console.log('PASS: 결과 화면 카드/키보드 선택·지도/그래프 ID/색상 일치·늦은 응답 때 선택 유지·그래프 실패 뒤 지도 유지 (모의 DOM)');

@@ -11,3 +11,6 @@ export const GRAPH_API_ENABLED = false;
 // SFR-001: 백엔드 담당자와 시작 경로를 합의한 뒤 같은 출처 URL을 입력한다.
 // 예시 경로를 실제 API로 간주하지 않도록 기본값은 비워 둔다.
 export const SOCIAL_AUTH_START_URLS = { google: "", kakao: "" };
+
+// 자동차 경로 설정과 독립: API가 없으면 로컬 개발 환경에서만 기존 예시 표시.
+export const GRAPH_DATA_SOURCE = "auto";
