@@ -6,7 +6,9 @@ const strip = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];/mg
 const calls = [];
 const path = [{ lat: 35.2285, lng: 128.8894 }, { lat: 35.2286, lng: 128.8895 }, { lat: 35.2287, lng: 128.8896 }];
 let status = 200;
+const mockUser = { id: 'route-test-user' };
 const context = vm.createContext({ USE_MOCK: true, USE_MOCK_ROUTES: false, GRAPH_DATA_SOURCE: "api", AbortController, setTimeout, clearTimeout, location: { hostname: "localhost" }, BASE_URL: '/api', URLSearchParams,
+  getUser: () => mockUser,
   localStorage: { getItem: () => null },
   fetch: async (url) => {
     calls.push(url);
@@ -31,6 +33,7 @@ status = 502;
 await assert.rejects(context.getRoutes({ from: '김해시청', to: '동의대학교' }), (error) => error.status === 502);
 assert(calls.every((url) => !url.includes('/mock/')));
 status = 200;
-await context.getFavorites();
-assert.equal(calls.at(-1), '/js/mock/favorites.json'); // 경로 실데이터 모드가 다른 기능의 모드를 바꾸지 않는다.
+const callsBeforeFavorites = calls.length;
+assert.equal((await context.getFavorites()).length, 0);
+assert.equal(calls.length, callsBeforeFavorites); // 경로 실데이터 모드에서도 즐겨찾기는 사용자별 Mock을 유지한다.
 console.log('PASS: 실제 상세 좌표·카드 지표 전달, 쿼리 호환, 그래프 독립, 실패 시 목업 미사용');

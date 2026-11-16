@@ -1,3 +1,4 @@
+import { getUser } from "/js/auth.js";
 import { GRAPH_DATA_SOURCE } from "/js/config.js";
 import { loadGraphPresentation } from "/js/graphData.js";
 // 서버 호출은 이 파일에만 둔다.
@@ -78,36 +79,55 @@ export async function searchPlaces(q = "") {
     .some((value) => String(value ?? "").toLocaleLowerCase("ko-KR").includes(keyword))) : places;
 }
 
-async function readMockFavorites() {
-  const saved = localStorage.getItem(MOCK_FAVORITES_KEY);
-  return saved ? JSON.parse(saved) : readMock("favorites.json");
+// 소유자를 알 수 없는 기존 공용 저장값은 보존하되 어떤 계정에도 배정하지 않는다.
+function favoriteSession() {
+  const owner = getUser();
+  if (!owner) throw new ApiError("로그인이 필요합니다.", 401);
+  return {
+    key: `${MOCK_FAVORITES_KEY}:${encodeURIComponent(owner.id)}`,
+    check() {
+      if (getUser() !== owner) throw new ApiError("로그인 계정이 변경되었습니다. 다시 시도해 주세요.", 409);
+    },
+  };
 }
 
-function writeMockFavorites(favorites) {
-  localStorage.setItem(MOCK_FAVORITES_KEY, JSON.stringify(favorites));
+function readMockFavorites(session) {
+  const saved = localStorage.getItem(session.key);
+  return saved ? JSON.parse(saved) : [];
 }
 
-export function getFavorites() {
-  return USE_MOCK ? readMockFavorites() : requestJson(buildUrl("/favorites"));
+export async function getFavorites() {
+  const session = favoriteSession();
+  const favorites = USE_MOCK ? readMockFavorites(session)
+    : await requestJson(buildUrl("/favorites"), { cache: "no-store" });
+  session.check();
+  return favorites;
 }
 
 export async function addFavorite(place) {
+  const session = favoriteSession();
   if (!USE_MOCK) {
-    return postJson("/favorites", place);
+    const created = await postJson("/favorites", place);
+    session.check();
+    return created;
   }
-  const favorites = await readMockFavorites();
-  const created = { ...place, id: `fav-${Date.now()}` };
-  writeMockFavorites([...favorites, created]);
+  const favorites = readMockFavorites(session);
+  const created = { ...place, id: crypto.randomUUID() };
+  session.check();
+  localStorage.setItem(session.key, JSON.stringify([...favorites, created]));
   return created;
 }
 
 export async function removeFavorite(id) {
+  const session = favoriteSession();
   if (!USE_MOCK) {
     await requestJson(buildUrl("/favorites", { id }), { method: "DELETE" });
+    session.check();
     return;
   }
-  const favorites = await readMockFavorites();
-  writeMockFavorites(favorites.filter((place) => place.id !== id));
+  const favorites = readMockFavorites(session);
+  session.check();
+  localStorage.setItem(session.key, JSON.stringify(favorites.filter((place) => place.id !== id)));
 }
 
 export async function getHistory() {
