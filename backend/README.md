@@ -94,11 +94,11 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `COOKIE_SECURE` | `true` | 세션 쿠키(`gilit_session`)의 Secure 속성. 운영은 반드시 `true`. 로컬 http에서 쿠키가 안 실리면 `false` |
 | `SECRET_KEY` | 없음 | 서명용 비밀 값. 소셜 로그인(OAuth state 쿠키 `gilit_oauth` 서명)에 필수 |
 | `OAUTH_REDIRECT_BASE` | 없음 | 소셜 로그인 콜백 주소의 앞부분 (예: `http://localhost:8000`, 경로 없이). 콜백은 `{값}/api/auth/{google\|kakao}/callback`이고 제공자 콘솔에 똑같이 등록한다 |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google OAuth 클라이언트 (웹 애플리케이션). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
-| `KAKAO_LOGIN_CLIENT_ID`, `KAKAO_LOGIN_CLIENT_SECRET` | 없음 | 카카오 로그인 앱의 REST API 키와 Client Secret. 길찾기용 `KAKAO_REST_API_KEY`와 따로 받는다 (같은 앱이면 같은 키). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google OAuth 클라이언트 (웹 애플리케이션). 활성화하려면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `KAKAO_LOGIN_CLIENT_ID`, `KAKAO_LOGIN_CLIENT_SECRET` | 없음 | 카카오 로그인 앱의 REST API 키와 Client Secret. 길찾기용 `KAKAO_REST_API_KEY`와 따로 받는다 (같은 앱이면 같은 키). 활성화하려면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
 | `OAUTH_MOCK` | `false` | `1`이면 외부 호출 없는 가짜 소셜 로그인 (Google·카카오 모두. start가 곧바로 콜백으로 이동, 고정 프로필, 카카오는 이메일 없음). `AUTH_STORE=memory`일 때만 켜지고, 켜면 실제 Google·카카오 설정은 쓰지 않는다 |
 
-설정이 반쯤만 있으면(예: `KAKAO_LOGIN_CLIENT_ID`만 있음) 서버가 시작하지 않고 빠진 환경변수 이름만 알려 준다. 값은 출력하지 않는다.
+OAuth 설정이 없거나 일부만 있으면 해당 제공자만 비활성화된다. 일부 설정이 있으면 빠진 환경변수 이름만 로그에 남기며 값은 출력하지 않는다. 다른 API는 계속 실행된다. 실제 인증 준비 절차는 [OAuth 설정 안내](../docs/oauth-setup.md)를 참고한다.
 
 테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`, `AUTH_STORE=mysql`, 실제 Google·카카오 키를 두어도 기본 테스트는 실제 API와 DB를 쓰지 않는다. 회원 저장소 계약 테스트를 MySQL에서 돌리려면 `pytest -m mysql_live`를 쓴다 (`TEST_DB_NAME` DB에 `db/schema.sql`이 적용돼 있어야 한다).
 

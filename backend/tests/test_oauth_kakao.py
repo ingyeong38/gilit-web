@@ -326,12 +326,10 @@ def test_google_and_kakao_can_be_configured_together():
         ),
     ],
 )
-def test_partial_kakao_settings_name_missing_variables_only(env, missing, present):
-    with pytest.raises(ValueError) as caught:
-        create_oauth_clients(Settings.from_env(env))
-
-    message = str(caught.value)
-    assert message.startswith("카카오 로그인에는")
+def test_partial_kakao_settings_name_missing_variables_only(env, missing, present, caplog):
+    assert create_oauth_clients(Settings.from_env(env)) == {}
+    message = caplog.messages[-1]
+    assert message.startswith("카카오 로그인 비활성화:")
     for name in missing:
         assert name in message
     for name in present:

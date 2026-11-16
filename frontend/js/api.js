@@ -173,19 +173,19 @@ export async function loginWithEmail({ email, password }) {
   return user;
 }
 
-export async function logoutSession() {
-  if (!USE_MOCK) await requestJson(buildUrl("/auth/logout"), { method: "POST" });
+export async function logoutSession(provider) {
+  if (!USE_MOCK || ["google", "kakao"].includes(provider)) await requestJson(buildUrl("/auth/logout"), { method: "POST" });
 }
 
 // 인증은 실제 서버 세션으로만 확인한다. 소셜 인증 mock은 제공하지 않는다.
 export function getSessionUser() {
-  return requestJson(buildUrl("/auth/me"));
+  return requestJson(buildUrl("/auth/me"), { credentials: "same-origin", cache: "no-store" });
 }
 
 export function getSocialLoginUrl(provider) {
   if (!["google", "kakao"].includes(provider)) throw new ApiError("지원하지 않는 로그인입니다.", 400);
   const configured = SOCIAL_AUTH_START_URLS[provider];
-  if (USE_MOCK || !configured) throw new ApiError("소셜 로그인은 백엔드 API 연동 대기 중입니다." + (USE_MOCK ? " 현재 이메일 Mock 로그인만 시험할 수 있습니다." : ""), 503);
+  if (!configured) throw new ApiError("소셜 로그인 시작 URL이 설정되지 않았습니다.", 503);
   const url = new URL(configured, location.origin);
   if (url.origin !== location.origin || !url.pathname.startsWith("/api/")) throw new ApiError("소셜 로그인 시작 URL 설정을 확인해 주세요.", 400);
   return url.href;

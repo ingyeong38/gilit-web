@@ -256,7 +256,7 @@ export function openAuthModal({ view = "login", onLogin, onDismiss, returnTo, me
     (email ? form.elements.password : form.elements.email).focus();
   };
 
-  render(view, { notice: message || (USE_MOCK ? "개발용 이메일 Mock 모드입니다. 실제 인증이 아닙니다." : "") });
+  render(view, { notice: message || (USE_MOCK ? "이메일은 개발용 Mock 모드이며, 소셜 로그인은 서버 인증을 사용합니다." : "") });
   window.addEventListener("pageshow", () => {
     modal.querySelectorAll("button, input").forEach((control) => { control.disabled = false; });
     modal.setAttribute("aria-busy", "false");

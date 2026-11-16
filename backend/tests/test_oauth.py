@@ -178,14 +178,14 @@ def test_each_start_issues_fresh_state(env):
 def test_unknown_provider_is_404_and_unconfigured_provider_fails(env):
     assert env.client.get("/api/auth/naver/start").status_code == 404
     assert env.client.get("/api/auth/naver/start").json() == {"message": "찾을 수 없습니다."}
-    assert auth_result(env.client.get("/api/auth/kakao/start")) == "failed"  # 4단계 전에는 설정되지 않음
+    assert auth_result(env.client.get("/api/auth/kakao/start")) == "not_configured"  # 4단계 전에는 설정되지 않음
     assert auth_result(callback(env.client, "kakao", code="x", state="y")) == "failed"
 
 
 def test_google_not_configured_redirects_failed():
     env = make_env(clients={})
 
-    assert auth_result(env.client.get("/api/auth/google/start")) == "failed"
+    assert auth_result(env.client.get("/api/auth/google/start")) == "not_configured"
 
 
 # --- 첫 가입 ---
@@ -689,13 +689,11 @@ def test_oauth_settings_from_env_hide_secret():
         ({"GOOGLE_CLIENT_ID": "id", "GOOGLE_CLIENT_SECRET": "s", "OAUTH_REDIRECT_BASE": "http://localhost:8000"}, ["SECRET_KEY"]),
     ],
 )
-def test_partial_google_settings_name_missing_variables(env, missing):
-    with pytest.raises(ValueError) as caught:
-        create_oauth_clients(Settings.from_env(env))
-
+def test_partial_google_settings_name_missing_variables(env, missing, caplog):
+    assert create_oauth_clients(Settings.from_env(env)) == {}
     for name in missing:
-        assert name in str(caught.value)
-    assert "s" not in str(caught.value).split("환경변수")[1]  # 값은 출력하지 않는다
+        assert name in caplog.text
+    assert "s" not in caplog.messages[-1].split("환경변수")[1]  # 값은 출력하지 않는다
 
 
 def test_no_social_settings_means_no_clients():

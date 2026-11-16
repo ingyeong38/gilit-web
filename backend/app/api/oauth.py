@@ -86,10 +86,10 @@ def _client(request: Request, provider: str) -> OAuthClient | None:
 
 @router.get("/{provider}/start", summary="소셜 로그인 시작", status_code=302, response_class=RedirectResponse)
 def start(provider: str, request: Request, auth: Annotated[AuthService, Depends(get_auth)]) -> RedirectResponse:
-    """제공자 인증 화면으로 보낸다. 설정되지 않은 제공자는 auth_result=failed로 돌려보낸다."""
+    """제공자 인증 화면으로 보낸다. 설정되지 않은 제공자는 auth_result=not_configured로 돌려보낸다."""
     client = _client(request, provider)
     if client is None:
-        return result_redirect("failed")
+        return result_redirect("not_configured")
     state, verifier = new_state(), new_code_verifier()
     expires_at = int(auth.now().timestamp() + STATE_TTL.total_seconds())
     cookie = encode_state_cookie(request.app.state.settings.secret_key, OAuthState(provider, state, verifier, expires_at))

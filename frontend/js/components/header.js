@@ -71,7 +71,7 @@ function renderHeader() {
     if (button.disabled) return;
     button.disabled = true;
     button.textContent = "로그아웃 중…";
-    try { await logoutSession(); logout(); }
+    try { await logoutSession(getUser()?.provider); logout(); }
     catch { showToast("로그아웃하지 못했습니다. 다시 시도해 주세요.", { error: true }); button.disabled = false; button.textContent = "로그아웃"; }
   });
 }

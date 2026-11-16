@@ -423,7 +423,7 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 ### 소셜 로그인 (Google, 카카오)
 
-제공자는 `google`, `kakao` 두 가지다. 서버에 설정되지 않은 제공자는 `start`가 곧바로 `auth_result=failed`로 돌려보낸다. 그 밖의 이름(`naver` 등)은 `404`.
+제공자는 `google`, `kakao` 두 가지다. 서버에 설정되지 않은 제공자는 `start`가 곧바로 `auth_result=not_configured`로 돌려보낸다. 그 밖의 이름(`naver` 등)은 `404`.
 
 **`GET /api/auth/{provider}/start`** — 프론트는 `fetch`가 아니라 페이지 이동(`location.assign`)으로 연다.
 
@@ -443,7 +443,8 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 | `success` | 로그인(또는 첫 가입) 성공 | 만듦 | 없음. `/api/auth/me` 확인 후 원래 화면으로 이동 |
 | `cancelled` | 사용자가 제공자 화면에서 취소 | 없음 | 소셜 로그인이 취소되었습니다. |
 | `email_exists` | 검증된 이메일이 다른 방법으로 가입한 계정과 같음 | 없음 | 이미 가입된 이메일입니다. 기존에 쓰던 방법으로 로그인해 주세요. |
-| `failed` | 그 밖의 모든 실패 (state 검사, 토큰 교환, 설정 없음, 서버 오류) | 없음 | 소셜 로그인에 실패했습니다. 다시 시도해 주세요. |
+| `not_configured` | 시작 시 제공자 설정 없음·필수 환경변수 누락 | 없음 | 소셜 로그인 인증 설정이 아직 완료되지 않았습니다. |
+| `failed` | 그 밖의 모든 실패 (state 검사, 토큰 교환, 서버 오류) | 없음 | 소셜 로그인에 실패했습니다. 다시 시도해 주세요. |
 
 실패 사유는 서버 로그에만 남긴다 (인가 코드·state·토큰 값은 남기지 않는다). 콜백은 `Cache-Control: no-store`다.
 

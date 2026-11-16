@@ -1,5 +1,6 @@
 """환경변수 설정. 비밀 값은 코드에 쓰지 않고 환경변수로만 받는다 (루트 .env.example 참고)."""
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -13,6 +14,8 @@ from app.auth.oauth import GoogleOAuthClient, KakaoOAuthClient, MockOAuthClient,
 from app.auth.service import AUTH_STORES
 from app.db import MySQLConfig
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
+
+logger = logging.getLogger(__name__)
 
 ROUTE_PROVIDERS = ("mock", "kakao")
 # 로컬 개발용 프론트 주소 (VS Code Live Server 기본 포트)
@@ -134,7 +137,7 @@ def create_route_provider(settings: Settings) -> RouteProvider:
 def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:
     """설정된 소셜 로그인 제공자. 아무것도 설정하지 않으면 빈 dict (소셜 로그인은 auth_result=failed).
 
-    설정이 반쯤만 있으면 앱 시작에서 빠진 환경변수 이름을 알려 준다 (값은 출력하지 않는다).
+    설정이 부족한 제공자만 끄고 빠진 환경변수 이름을 기록한다 (값은 출력하지 않는다).
     """
     if settings.oauth_mock:
         if settings.auth_store != "memory":
@@ -159,7 +162,8 @@ def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
-            raise ValueError(f"{label} 로그인에는 {', '.join(missing)} 환경변수가 필요합니다.")
+            logger.warning("%s 로그인 비활성화: 필요한 환경변수 %s", label, ", ".join(missing))
+            continue
         clients[provider] = client_class(client_id, client_secret)
     return clients
 
