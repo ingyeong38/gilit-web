@@ -1,11 +1,21 @@
 """API 요청·응답 모델. 필드 설명과 예시는 /docs(Swagger)에 그대로 나온다."""
 
-from datetime import datetime
-from typing import Literal
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
-from app.departure import KST, Coordinate, TravelMode
+from app.departure import KST, ROUTE_OPTIONS, Coordinate, TravelMode
 
 BUFFER_CHOICES = (0, 5, 10, 15)  # 프론트 검색 화면의 여유시간 버튼과 같다
 
@@ -205,6 +215,92 @@ class RouteQuery(BaseModel):
 
     def destination(self) -> Coordinate | None:
         return None if self.toLat is None else Coordinate(self.toLat, self.toLng)
+
+
+# --- GET /api/routes/graph (소요시간 그래프) ---
+
+GRAPH_CARD_LIMIT = 4  # GET /api/routes 카드 수 상한과 같다
+GRAPH_CARD_WINDOW = timedelta(hours=24)  # card 출발시각은 arrive 전 24시간 안
+CARD_FORMAT_MESSAGE = "card는 <경로 id>@<출발시각> 형식이어야 합니다 (예: recommend@2026-11-06T08:12:00+09:00)."
+CARD_COUNT_MESSAGE = f"card는 1~{GRAPH_CARD_LIMIT}개 보내 주세요."
+CARD_DUPLICATE_MESSAGE = "같은 경로 id의 card가 두 번 있습니다."
+CARD_TIME_MESSAGE = "card의 출발시각은 시간대가 있는 ISO 8601 형식이어야 합니다 (예: recommend@2026-11-06T08:12:00+09:00)."
+CARD_RANGE_MESSAGE = "card의 출발시각은 도착 희망 시각 전 24시간 안이어야 합니다."
+
+
+def card_option_message(keys) -> str:
+    # 사용자가 보낸 id는 문장에 넣지 않는다 (화면에 그대로 나올 수 있다).
+    return f"card의 경로 id는 {', '.join(keys)} 중 하나여야 합니다."
+
+
+@dataclass(frozen=True)
+class CardParam:
+    id: str
+    depart_at: datetime
+
+
+class GraphQuery(RouteQuery):
+    """GET /api/routes/graph 쿼리. from·to·arrive·좌표 검증은 RouteQuery와 같다 (좌표는 위도·경도를 함께).
+
+    buffer는 프론트가 같은 검색 조건을 그대로 보내므로 받기만 하고 쓰지 않는다 (어떤 값이어도 오류를 내지 않는다).
+    card는 /api/routes 카드의 id와 departTime을 `<id>@<departTime>`로 이어 1~4개 반복해 보낸다.
+    """
+
+    buffer: str | None = Field(default=None, description="받지만 쓰지 않는다. 어떤 값이어도 오류가 아니다")
+    card: list[Annotated[str, StringConstraints(max_length=64)]] = Field(
+        default_factory=list,
+        description="`<경로 id>@<권장 출발시각>`, 1~4개 반복. id는 recommend·time·distance·free, 시각은 시간대 포함 ISO 8601 "
+        "(`+`는 `%2B`). 마지막 @ 기준으로 나눈다",
+        examples=[["recommend@2026-11-06T08:12:00+09:00"]],
+    )
+    _cards: list[CardParam] = PrivateAttr(default_factory=list)
+
+    @field_validator("buffer")
+    @classmethod
+    def check_buffer(cls, value):  # RouteQuery.check_buffer를 덮어쓴다: 그래프는 buffer를 쓰지 않는다
+        return value
+
+    @model_validator(mode="after")
+    def check_cards(self) -> "GraphQuery":
+        # 여기서 던지는 문장은 그대로 400 message가 된다 (errors.validation_message).
+        if not 1 <= len(self.card) <= GRAPH_CARD_LIMIT:
+            raise ValueError(CARD_COUNT_MESSAGE)
+        cards = [self._parse_card(value) for value in self.card]
+        if len({card.id for card in cards}) != len(cards):
+            raise ValueError(CARD_DUPLICATE_MESSAGE)
+        self._cards = cards
+        return self
+
+    def _parse_card(self, value: str) -> CardParam:
+        card_id, separator, text = value.rpartition("@")
+        if not separator or not card_id:
+            raise ValueError(CARD_FORMAT_MESSAGE)
+        if card_id not in ROUTE_OPTIONS:
+            raise ValueError(card_option_message(ROUTE_OPTIONS))
+        try:
+            depart_at = datetime.fromisoformat(text)
+        except ValueError:
+            raise ValueError(CARD_TIME_MESSAGE) from None
+        if depart_at.tzinfo is None:
+            raise ValueError(CARD_TIME_MESSAGE)
+        # 지난 출발시각은 거절하지 않는다 (지난 슬롯만 서버가 뺀다).
+        if not self.arrive - GRAPH_CARD_WINDOW <= depart_at < self.arrive:
+            raise ValueError(CARD_RANGE_MESSAGE)
+        return CardParam(card_id, depart_at.astimezone(KST))
+
+    def cards(self) -> list[CardParam]:
+        """검증을 마친 card. 요청 순서대로."""
+        return list(self._cards)
+
+
+class GraphPointResponse(BaseModel):
+    departTime: datetime = Field(description="슬롯 출발시각 (한국 시간 +09:00, 분 단위)")
+    durationMin: int = Field(ge=0, description="그 시각에 출발했을 때의 예상 소요시간(분, 올림)")
+
+
+class RouteGraphResponse(BaseModel):
+    routeId: str = Field(description="요청한 card의 id 그대로 (= GET /api/routes 카드 id)")
+    points: list[GraphPointResponse] = Field(description="시간순. 실패·지난 슬롯은 빠진다")
 
 
 class LatLng(BaseModel):

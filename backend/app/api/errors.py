@@ -77,6 +77,8 @@ INVALID_MESSAGES = {
     "fromLng": "출발지 경도는 -180~180 사이의 숫자여야 합니다.",
     "toLat": "목적지 위도는 -90~90 사이의 숫자여야 합니다.",
     "toLng": "목적지 경도는 -180~180 사이의 숫자여야 합니다.",
+    # GET /api/routes/graph. 나머지 card 문장은 schemas.GraphQuery가 직접 정한다.
+    "card": "card는 <경로 id>@<출발시각> 형식이어야 합니다 (예: recommend@2026-11-06T08:12:00+09:00).",
     "origin": "출발지는 name, lat, lng가 있는 객체여야 합니다.",
     "destination": "목적지는 name, lat, lng가 있는 객체여야 합니다.",
     "name": "장소 이름은 1~100자로 입력해 주세요.",
