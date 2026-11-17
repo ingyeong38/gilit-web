@@ -240,7 +240,8 @@ async function init() {
     }
     const updateGraph = setupResults(search, routes);
     // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
-    getRouteGraph({ ...search, arrive }).then(updateGraph).catch(() => {
+    // 카드가 0개면 위에서 끝나므로 그래프를 요청하지 않는다. 카드의 id·departTime을 함께 보낸다.
+    getRouteGraph({ ...search, arrive }, routes).then(updateGraph).catch(() => {
       updateGraph({ message: "소요시간 그래프를 불러오지 못했습니다. 실제 경로 카드와 지도는 계속 사용할 수 있습니다." });
     });
   } catch (error) {

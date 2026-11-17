@@ -1,5 +1,6 @@
 // 경로 조회 모드와 독립적인 그래프 데이터 연결. 예시 ID를 실제 ID로 바꾸지 않는다.
-export async function loadGraphPresentation({ search, mode, baseUrl, hostname, fetcher = fetch }) {
+// routes: 같은 검색의 /api/routes 카드. 카드마다 card=<id>@<departTime>으로 보낸다 (docs/api-spec.md, 1~4개).
+export async function loadGraphPresentation({ search, routes: liveRoutes = [], mode, baseUrl, hostname, fetcher = fetch }) {
   const development = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname);
   const read = async (url) => {
     const controller = new AbortController();
@@ -19,10 +20,16 @@ export async function loadGraphPresentation({ search, mode, baseUrl, hostname, f
   if (!["auto", "api", "example", "off"].includes(mode)) throw new Error("그래프 모드 설정을 확인해 주세요.");
   if (mode === "off") return { graphs: [], isExample: false, message: "그래프 표시가 꺼져 있습니다." };
   if (mode === "auto" || mode === "api") {
+    // id·departTime이 없는 카드는 건너뛰고 앞에서부터 4개만 보낸다. 보낼 카드가 없으면 요청하지 않는다 (서버는 400).
+    const cards = (Array.isArray(liveRoutes) ? liveRoutes : [])
+      .filter(route => typeof route?.id === "string" && route.id && typeof route.departTime === "string" && route.departTime)
+      .slice(0, 4);
+    if (!cards.length) return { graphs: [], isExample: false, message: "그래프를 요청할 경로 카드가 없습니다." };
     const params = new URLSearchParams();
     for (const key of ["from", "to", "arrive", "buffer", "fromLat", "fromLng", "toLat", "toLng"]) {
       if (search[key] !== undefined && search[key] !== null) params.set(key, search[key]);
     }
+    for (const route of cards) params.append("card", `${route.id}@${route.departTime}`); // 인코딩은 URLSearchParams
     try {
       return { graphs: await read(`${baseUrl}/routes/graph?${params}`), isExample: false, message: "" };
     } catch (error) {
