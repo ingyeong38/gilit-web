@@ -8,11 +8,13 @@ let user = null;
 let initialization;
 let redirecting = false;
 let authMessage = "";
+let authVersion = 0;
 
 export function getUser() { return user; }
 
 export function setUser(value) {
   if (!value || typeof value.id !== "string" || !value.id) throw new Error("사용자 응답을 확인해 주세요.");
+  authVersion++;
   user = { ...value, name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : "길잇 사용자" };
   // 기존 표시용 캐시를 인증 근거로 읽지 않는다. Mock 세션은 별도 저장한다.
   try {
@@ -41,6 +43,7 @@ export function login(provider, returnTo = location.pathname + location.search +
 }
 
 export function logout() {
+  authVersion++;
   user = null;
   try { localStorage.removeItem("gilit:user"); sessionStorage.removeItem(MOCK_SESSION); } catch { /* 메모리 상태는 종료 */ }
   window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
@@ -57,14 +60,19 @@ export function initializeAuth() {
       url.searchParams.delete("auth_result");
       history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
+    const version = authVersion;
     try {
       if (USE_MOCK) {
         const saved = sessionStorage.getItem(MOCK_SESSION);
         if (saved && !result) setUser(JSON.parse(saved));
       } else {
-        setUser(await getSessionUser());
+        const current = await getSessionUser();
+        // 조회 중 로그아웃하거나 다른 계정으로 로그인했다면 이전 응답을 버린다.
+        if (version !== authVersion) return;
+        setUser(current);
       }
     } catch (error) {
+      if (version !== authVersion) return;
       user = null;
       if (error.status !== 401) authMessage = "로그인 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
     }
@@ -74,7 +82,11 @@ export function initializeAuth() {
       if (result === "success" && user && !USE_MOCK) {
         if (returnTo) location.replace(safeReturnPath(returnTo));
       } else {
-        authMessage = result === "cancelled" ? "소셜 로그인이 취소되었습니다." : "소셜 로그인에 실패했습니다. 다시 시도해 주세요.";
+        const messages = {
+          cancelled: "소셜 로그인이 취소되었습니다.",
+          email_exists: "이미 가입된 이메일입니다. 기존에 쓰던 방법으로 로그인해 주세요.",
+        };
+        authMessage = messages[result] || authMessage || "소셜 로그인에 실패했습니다. 다시 시도해 주세요.";
       }
     }
   })();
