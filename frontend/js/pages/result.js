@@ -1,6 +1,7 @@
 import { normalizeRouteGraphs } from "/js/components/durationGraph.js?v=card530-20261114-6";
-import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
-import { addFavorite, getFavorites, getRouteGraph, getRoutes, searchPlaces } from "/js/api.js";
+import { USE_MOCK as USE_MOCK_FAVORITES, USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
+import { getUser, initializeAuth, onAuthChange } from "/js/auth.js";
+import { addFavorite, getFavorites, getRouteGraph, getRoutes, removeFavorite, searchPlaces } from "/js/api.js";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { renderRouteMap } from "/js/components/map.js";
@@ -71,32 +72,131 @@ function renderRouteCard(route, index, { date, buffer }) {
     <article class="route-card" role="button" tabindex="0" aria-pressed="false" data-index="${index}">
       <div class="route-card-head">
         <span class="route-tag tag-${index}">${index === 0 ? icon("spark", { size: 13 }) : ""}${escapeHtml(formatRouteLabel(route))}</span>
-        <button class="star-button" type="button" aria-label="목적지를 즐겨찾기에 저장">${icon("star", { size: 19 })}</button>
       </div>
       <div class="route-name">${escapeHtml(route.name)}</div>
       <div class="departure-label">권장 출발${isPreviousDay ? " (전날)" : ""}</div>
       <div class="departure-time">${timeOf(route.departTime)}</div>
       <div class="route-details">
         ${[
-          ["clock", "예상 소요시간", typeof route.durationMin === "number" ? `${route.durationMin}분` : "미제공"],
-          ["route", "거리", typeof route.distanceKm === "number" ? `${route.distanceKm}km` : "미제공"],
-          ["toll", "통행료", route.toll == null ? "미제공" : formatWon(route.toll)],
-          ["fuel", "예상 유류비", route.fuel == null ? "미제공" : formatWon(route.fuel)],
-        ].map(([name, title, value]) => `<div class="route-metric"><span class="route-metric-icon">${icon(name, { size: 25 })}</span><div><small>${title}</small><b>${escapeHtml(value)}</b></div></div>`).join("")}
+          ["예상 소요시간", typeof route.durationMin === "number" ? `${route.durationMin}분` : "미제공"],
+          ["거리", typeof route.distanceKm === "number" ? `${route.distanceKm}km` : "미제공"],
+          ["통행료", route.toll == null ? "미제공" : formatWon(route.toll)],
+        ].map(([title, value]) => `<div class="route-metric"><small>${title}</small><b>${escapeHtml(value)}</b></div>`).join("")}
       </div>
-      <div class="arrival-info"><div class="arrival-main">${icon("flag", { size: 25 })}<span>도착 예정</span><b>${escapeHtml(timeOf(route.arriveTime))}</b></div>${renderBufferNote(route, buffer)}</div>
+      <div class="arrival-info"><div class="arrival-main">${icon("check", { size: 20 })}<b>${escapeHtml(timeOf(route.arriveTime))} 도착 예정</b></div>${renderBufferNote(route, buffer)}</div>
     </article>
   `;
 }
 
-// 즐겨찾기는 장소 단위이므로 별을 누르면 이번 검색의 목적지를 저장한다.
-async function saveDestination(name) {
-  const favorites = await getFavorites();
-  if (!favorites.some((place) => place.name === name)) {
-    const places = await searchPlaces(name);
-    const address = places.find((place) => place.name === name)?.address ?? name;
-    await addFavorite({ name, address, type: "기타" });
+const PLACE_REQUIRED = "목적지 위치를 알 수 없어요. 장소를 검색해서 선택해 주세요.";
+
+// 즐겨찾기는 장소 단위라 별은 요약 바의 도착지 이름(#summary-to) 바로 옆에 하나만 둔다 (result.html #destination-star).
+// id는 서버 생성 응답이나 목록에서 받은 값이고, 해제(DELETE ?id=)에 쓴다. null이면 저장 안 됨.
+let destinationFavoriteId = null;
+let favoriteGeneration = 0;
+let favoriteBusy = false;
+
+// URL 쿼리의 좌표(문자열). 비었거나 범위를 벗어나면 null.
+function readCoordinate(value, limit) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && Math.abs(number) <= limit ? number : null;
+}
+
+function favoriteErrorMessage(error, fallback) {
+  return error?.status >= 400 && error.status < 500 && error.message ? error.message : fallback;
+}
+
+function renderStar() {
+  const star = document.getElementById("destination-star");
+  if (!star) return;
+  const active = destinationFavoriteId !== null;
+  star.classList.toggle("active", active);
+  star.setAttribute("aria-pressed", String(active));
+}
+
+// 로그인 계정이 바뀌면 이전 계정의 별 상태를 버리고 현재 계정 목록에서 다시 찾는다.
+async function loadDestinationFavorite(name) {
+  const current = ++favoriteGeneration;
+  destinationFavoriteId = null;
+  renderStar();
+  if (!getUser()) return;
+  try {
+    const favorites = await getFavorites();
+    if (current !== favoriteGeneration) return;
+    destinationFavoriteId = favorites.find((place) => place.name === name)?.id ?? null;
+    renderStar();
+  } catch {
+    // 별은 비어 있는 상태로 둔다. 누르면 다시 목록을 확인한다.
   }
+}
+
+// 이번 검색의 목적지를 저장한다. 같은 이름이 이미 있으면 그 항목을 돌려준다.
+async function saveDestination({ to: name, toLat, toLng }) {
+  const favorites = await getFavorites();
+  const existing = favorites.find((place) => place.name === name);
+  if (existing) return existing;
+  const lat = readCoordinate(toLat, 90);
+  const lng = readCoordinate(toLng, 180);
+  const located = lat !== null && lng !== null;
+  // 서버는 좌표가 없으면 이름으로 다시 찾다가 400을 낸다. 검색에서 고른 장소(좌표 있음)만 보낸다.
+  if (!USE_MOCK_FAVORITES && !located) throw Object.assign(new Error(PLACE_REQUIRED), { status: 400 });
+  const places = await searchPlaces(name);
+  const address = places.find((place) => place.name === name)?.address ?? name;
+  return addFavorite({ name, address, type: "기타", ...(located ? { lat, lng } : {}) });
+}
+
+async function toggleDestinationFavorite(search) {
+  if (favoriteBusy) return;
+  if (!getUser()) {
+    showToast("로그인이 필요합니다.", { error: true });
+    return;
+  }
+  const current = favoriteGeneration;
+  const removing = destinationFavoriteId !== null;
+  favoriteBusy = true;
+  try {
+    if (removing) {
+      await removeFavorite(destinationFavoriteId);
+      if (current !== favoriteGeneration) return;
+      destinationFavoriteId = null;
+      showToast("즐겨찾기에서 삭제했어요");
+    } else {
+      const saved = await saveDestination(search);
+      if (current !== favoriteGeneration) return;
+      destinationFavoriteId = saved.id;
+      showToast("즐겨찾기에 저장했어요");
+    }
+    renderStar();
+  } catch (error) {
+    if (current !== favoriteGeneration) return;
+    // 다른 화면에서 이미 지운 경우 (404) 별을 비운다.
+    if (removing && error?.status === 404) {
+      destinationFavoriteId = null;
+      renderStar();
+    }
+    showToast(favoriteErrorMessage(error, removing ? "즐겨찾기를 해제하지 못했어요" : "즐겨찾기에 저장하지 못했어요"), { error: true });
+  } finally {
+    favoriteBusy = false;
+  }
+}
+
+// 경로 카드가 나온 뒤에만 요약 바의 별을 보인다 (경로를 못 찾으면 화면 전체가 안내 문구로 바뀐다).
+// 도착지 이름은 renderSummary가 #summary-to에 넣는다. 말줄임될 때를 위해 title에도 넣는다.
+function watchDestinationFavorite(search) {
+  const name = search.to;
+  const label = document.getElementById("summary-to");
+  const star = document.getElementById("destination-star");
+  if (label) label.title = name; // 요약 바에서 말줄임될 때 전체 이름
+  if (star) {
+    star.hidden = false;
+    star.addEventListener("click", () => toggleDestinationFavorite(search));
+  }
+  renderStar();
+  initializeAuth().then(() => {
+    loadDestinationFavorite(name);
+    onAuthChange(() => loadDestinationFavorite(name));
+  });
 }
 
 async function copyToClipboard(text) {
@@ -181,17 +281,6 @@ function setupResults(search, routes, graph = []) {
         select(index);
       }
     });
-    const star = card.querySelector(".star-button");
-    star.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      try {
-        await saveDestination(search.to);
-        star.classList.add("active");
-        showToast("즐겨찾기에 저장했어요");
-      } catch {
-        showToast("즐겨찾기에 저장하지 못했어요", { error: true });
-      }
-    });
   });
 
   select(0);
@@ -239,6 +328,7 @@ async function init() {
       return;
     }
     const updateGraph = setupResults(search, routes);
+    watchDestinationFavorite(search);
     // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
     // 카드가 0개면 위에서 끝나므로 그래프를 요청하지 않는다. 카드의 id·departTime을 함께 보낸다.
     getRouteGraph({ ...search, arrive }, routes).then(updateGraph).catch(() => {

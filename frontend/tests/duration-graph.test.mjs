@@ -133,9 +133,34 @@ assert.equal(model.summaryPosition({width:700,height:270,cardWidth:270,cardHeigh
 const placement=model.summaryPosition({width:700,height:270,cardWidth:270,cardHeight:210,x:650,y:260});
 assert.equal(placement.side,'left');assert(placement.top+210<=270);assert(placement.left>=0);
 const html=page.renderRouteCard({...routes[0],arriveTime:'2026-11-15T08:50:00+09:00',durationMin:45,distanceKm:28.7,toll:0,fuel:null},0,{date:'2026-11-15',buffer:10});
-assert.equal([...html.matchAll(/class="route-metric"/g)].length,4);assert(html.includes('45분'));assert(html.includes('28.7km'));assert(html.includes('미제공'));assert(html.includes('08:50'));assert(html.includes('여유 10분'));assert(html.includes('0원'));
-const paid=page.renderRouteCard({...routes[0],arriveTime:'2026-11-15T08:50:00+09:00',fuel:3900,toll:1300},0,{date:'2026-11-15',buffer:0});assert(paid.includes('3,900원'));assert(paid.includes('1,300원'));
-console.log('PASS: 증가/단축/동일/첫 데이터·좌우 및 수직 위치 경계·4개 경로 정보와 누락값');
+assert.equal([...html.matchAll(/class="route-metric"/g)].length,3);assert(html.includes('45분'));assert(html.includes('28.7km'));assert(html.includes('08:50 도착 예정'));assert(html.includes('여유 10분'));assert(html.includes('0원'));assert(!html.includes('star-button'));
+// 지표는 라벨(small)·값(b) 2줄, 아이콘 타일 없음, 순서는 예상 소요시간 / 거리 / 통행료
+assert.deepEqual([...html.matchAll(/<div class="route-metric"><small>([^<]+)<\/small><b>[^<]*<\/b><\/div>/g)].map(m=>m[1]),['예상 소요시간','거리','통행료']);
+assert(!html.includes('route-metric-icon'));
+assert.match(html,/<div class="arrival-info"><div class="arrival-main">[^]*?<b>08:50 도착 예정<\/b><\/div><span>여유 10분<\/span><\/div>/);
+// 유류비는 응답에 값이 있어도 카드에 표시하지 않는다 (API·mock 필드는 그대로)
+const paid=page.renderRouteCard({...routes[0],arriveTime:'2026-11-15T08:50:00+09:00',fuel:3900,toll:1300},0,{date:'2026-11-15',buffer:0});assert(paid.includes('1,300원'));
+for (const card of [html, paid]) { assert(!card.includes('유류비')); assert(!card.includes('3,900원')); }
+const missing=page.renderRouteCard({...routes[0],arriveTime:'2026-11-15T08:50:00+09:00',toll:null},0,{date:'2026-11-15',buffer:0});assert.equal([...missing.matchAll(/미제공/g)].length,3);
+assert(!(await read('../js/pages/result.js')).includes('유류비'));
+assert((await read('../js/mock/routes.json')).includes('"fuel"')); // mock 필드는 삭제하지 않는다
+// 카드 색 규칙: 토큰 값과 선택/미선택 규칙. 같은 선택자에서 그 속성을 선언한 마지막 규칙(@media 안 포함)을 본다.
+const tokens=await read('../css/base.css');
+for (const [name,value] of [['--white','#ffffff'],['--blue-pale','#f5f8ff'],['--navy','#0b1f4b'],['--blue','#2563eb'],['--line','#e6eaf0']]) assert.match(tokens,new RegExp(`${name}: ${value};`));
+const cardCss=(await read('../css/pages/result.css')).replace(/\/\*[\s\S]*?\*\//g,'');
+const cssRules=[...cardCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([,s,body])=>({selectors:s.split(',').map(v=>v.trim()),decls:Object.fromEntries(body.split(';').map(d=>d.split(/:(.*)/s).map(v=>v.trim())).filter(([k,v])=>k&&v))}));
+const lastDecl=(selector,prop)=>cssRules.filter(r=>r.selectors.includes(selector)&&prop in r.decls).at(-1)?.decls[prop];
+assert.equal(lastDecl('.route-card','background'),'var(--white)');
+assert.equal(lastDecl('.route-card.selected','background'),'var(--blue-pale)');
+assert.equal(lastDecl('.route-card.selected','box-shadow'),'0 0 0 1px var(--blue)');
+assert.equal(lastDecl('.departure-time','color'),'var(--navy)');
+assert.equal(lastDecl('.route-card.selected .departure-time','color'),'var(--blue)');
+assert.equal(lastDecl('.route-details','grid-template-columns'),'repeat(3, minmax(0, 1fr))');
+assert.equal(lastDecl('.route-metric','border-left'),'1px solid var(--line)');
+assert.equal(lastDecl('.arrival-info','border-top'),'1px solid var(--line)');
+assert.equal(lastDecl('.route-card','--route-arrival'),'#1aa46d');
+assert.equal(lastDecl('.arrival-main b','color'),'var(--route-arrival)');
+console.log('PASS: 증가/단축/동일/첫 데이터·좌우 및 수직 위치 경계·3개 경로 지표(유류비 없음)·누락값·카드 색 규칙');
 
 for(const y of [44,120,200]) {
   const placement=model.summaryPosition({width:700,height:270,cardWidth:250,cardHeight:180,x:400,y});

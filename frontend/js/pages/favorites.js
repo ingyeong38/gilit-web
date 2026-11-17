@@ -1,3 +1,4 @@
+import { getUser, onAuthChange } from "/js/auth.js";
 import { addFavorite, getFavorites, getHistory, removeFavorite } from "/js/api.js";
 import { openAddPlaceModal } from "/js/components/addPlaceModal.js";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -21,6 +22,7 @@ const newSearchLink = document.getElementById("new-search-link");
 const tabButtons = document.querySelectorAll("[data-tab]");
 
 let tab = new URLSearchParams(location.search).get("tab") === "history" ? "history" : "favorites";
+let generation = 0;
 let favorites = [];
 let history = [];
 
@@ -81,33 +83,49 @@ function render() {
 }
 
 function openAddModal() {
+  const owner = getUser();
+  const current = generation;
   openAddPlaceModal({
     onAdd: async (place) => {
+      if (!owner || owner !== getUser() || current !== generation) return;
       try {
-        favorites = [...favorites, await addFavorite(place)];
+        const created = await addFavorite(place);
+        if (current !== generation) return;
+        favorites = [...favorites, created];
         render();
-      } catch {
-        showToast("장소를 저장하지 못했어요", { error: true });
+      } catch (error) {
+        showToast(serverMessage(error, "장소를 저장하지 못했어요"), { error: true });
       }
     },
   });
 }
 
 async function deletePlace(id) {
+  const current = generation;
+  if (!getUser()) return;
   try {
     await removeFavorite(id);
+    if (current !== generation) return;
     favorites = favorites.filter((place) => place.id !== id);
     render();
-  } catch {
-    showToast("장소를 삭제하지 못했어요", { error: true });
+  } catch (error) {
+    showToast(serverMessage(error, "장소를 삭제하지 못했어요"), { error: true });
   }
 }
 
+// 4xx는 서버가 보낸 사용자용 문구를 그대로, 5xx·네트워크 오류는 기본 문구로 (docs/api-spec.md "오류").
+function serverMessage(error, fallback) {
+  return error?.status >= 400 && error.status < 500 && error.message ? error.message : fallback;
+}
+
 async function init() {
+  const current = ++generation;
+  if (!getUser()) return;
   renderIcons();
   render();
 
   const [favoritesResult, historyResult] = await Promise.allSettled([getFavorites(), getHistory()]);
+  if (current !== generation) return;
   if (favoritesResult.status === "fulfilled") favorites = favoritesResult.value;
   if (historyResult.status === "fulfilled") history = historyResult.value;
   if (favoritesResult.status === "rejected" || historyResult.status === "rejected") {
@@ -130,3 +148,21 @@ content.addEventListener("click", (event) => {
 });
 
 requirePageAccess().then(init);
+
+// 메모리와 BFCache의 화면도 인증 경계에서 폐기한다. 저장된 데이터는 지우지 않는다.
+function clearFavoriteView() {
+  generation++;
+  favorites = [];
+  render();
+}
+onAuthChange(() => {
+  clearFavoriteView();
+  if (getUser()) init();
+});
+window.addEventListener("pagehide", clearFavoriteView);
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    clearFavoriteView();
+    location.reload(); // 초기 인증 검사를 다시 수행한 뒤 현재 계정 목록을 조회한다.
+  }
+});

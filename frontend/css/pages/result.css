@@ -109,29 +109,30 @@
   #duration-chart .list-title { font-size: 15px; }
 }
 
-/* 경로 카드: 컴팩트한 세로 간격을 유지하며 PC 정보 카드를 4열로 배치한다. */
+/* 경로 카드: 초기 디자인처럼 여유 있는 세로 간격, 라벨·값 2줄 지표 3열, 구분선으로 나눈 도착 예정 행. */
 .duration-result-page .results-shell { max-width: 1440px; width: calc(100% - 40px); margin-left: auto; margin-right: auto; padding-left: 0; padding-right: 0; }
 .duration-result-page .results-grid { grid-template-columns: 530px minmax(0, 1fr); gap: 20px; align-items: start; }
 .route-list { gap: 10px; min-width: 0; align-self: start; }
-.route-card { padding: 10px; border-radius: 16px; box-shadow: none; height: auto; min-height: 0; align-self: start; }
-.route-card.selected { border-width: 1px; background: white; box-shadow: 0 0 0 1px var(--blue); }
+/* 색은 base.css 토큰을 쓴다: --white #fff, --blue-pale #f5f8ff, --navy #0b1f4b, --blue #2563eb, --line #e6eaf0.
+   도착 예정 초록(#1aa46d)은 기존 --green(#16a36a)과 달라 카드에만 선언한다. */
+.route-card { --route-arrival: #1aa46d; padding: 22px; border-radius: 16px; background: var(--white); box-shadow: none; height: auto; min-height: 0; align-self: start; }
+.route-card.selected { border-width: 1px; background: var(--blue-pale); box-shadow: 0 0 0 1px var(--blue); }
 .route-card:focus-visible { outline: 3px solid var(--blue); outline-offset: 4px; }
 .route-tag { font-size: 11px; padding: 4px 8px; border-radius: 999px; }
 .star-button { min-width: 24px; min-height: 24px; }
-.route-name { font-size: 13px; line-height: 1.5; margin-top: 2px; overflow-wrap: anywhere; }
-.departure-label { font-size: 14px; margin-top: 2px; }
-.departure-time, .route-card.selected .departure-time { color: var(--navy); font-size: 38px; margin-top: 2px; line-height: 1.1; }
-.route-details { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 4px 0 0; margin-top: 4px; border-bottom: 0; }
-.route-metric { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 48px; padding: 4px 6px; border-radius: 12px; background: #f2f5fa; }
-.route-details .route-metric-icon { border: 0; flex: none; color: #527694; }
-.route-metric > div { border-left: 1px solid #d4ddea; padding-left: 6px; min-width: 0; }
-.route-details .route-metric small { font-size: 10px; color: #64718a; line-height: 1.5; white-space: normal; }
-.route-details .route-metric b { font-size: 16px; font-weight: 800; color: var(--navy); white-space: nowrap; overflow-wrap: normal; letter-spacing: -.03em; margin-top: 1px; }
-.arrival-info { gap: 8px; margin-top: 6px; padding: 7px 10px; border-radius: 12px; background: #edf2fc; font-size: 11px; color: #64718a; }
-.arrival-main { display: flex; align-items: center; gap: 7px; color: var(--navy); }
-.arrival-main > svg { color: #566d91; flex: none; width: 21px; height: 21px; }
-.arrival-info .arrival-main span { color: var(--navy); font-size: 11px; white-space: nowrap; }
-.arrival-main b { font-size: 20px; border-left: 1px solid #cad5e7; padding-left: 7px; font-family: 'Manrope', sans-serif; }
+.route-name { font-size: 13px; line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
+.departure-label { font-size: 14px; margin-top: 16px; }
+.departure-time { color: var(--navy); font-size: 38px; margin-top: 6px; line-height: 1.1; }
+.route-card.selected .departure-time { color: var(--blue); }
+.route-details { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin-top: 18px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 0; }
+.route-metric { min-width: 0; padding: 0 14px; border-left: 1px solid var(--line); }
+.route-metric:first-child { padding-left: 0; border-left: 0; }
+.route-details .route-metric small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.route-details .route-metric b { font-size: 16px; font-weight: 800; color: var(--navy); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.02em; margin-top: 4px; }
+.arrival-info { gap: 8px; margin-top: 0; padding: 16px 0 0; border-top: 1px solid var(--line); border-radius: 0; background: none; font-size: 13px; color: var(--muted); }
+.arrival-main { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--route-arrival); }
+.arrival-main > svg { color: var(--route-arrival); flex: none; width: 20px; height: 20px; }
+.arrival-main b { font-size: 17px; font-weight: 800; color: var(--route-arrival); white-space: nowrap; }
 .duration-plot { position: relative; }
 .duration-popover { position: absolute; z-index: 6; width: 290px; max-width: calc(100% - 16px); padding: 0; border: 1px solid #7da6ff; border-radius: 12px; background: #fff; box-shadow: 0 5px 16px #153b7a14; color: var(--navy); overflow: visible; }
 .duration-popover-head { display: flex; align-items: center; gap: 8px; padding-bottom: 7px; border-bottom: 1px solid #dce4f0; font-size: 12px; }
@@ -194,7 +195,7 @@
 .duration-table-route .route-tag { font-size: 11px; padding: 3px 8px; }
 @media (max-width: 640px) {
   .departure-time, .route-card.selected .departure-time { font-size: 32px; }
-  .departure-label { margin-top: 6px; font-size: 13px; }
+  .departure-label { margin-top: 14px; font-size: 13px; }
   .duration-popover { width: 250px; max-width: 100%; margin: 8px 0; }
   .duration-popover::before { display: none; }
   .duration-row-time { flex-wrap: nowrap; }
@@ -251,13 +252,14 @@
   .duration-row { padding: 7px 8px; }
 }
 
-/* 사용 가능한 폭에 따라 4열/2열을 선택하며 페이지 가로 넘침을 방지한다. */
+/* 좁은 폭에서는 결과를 1열로 쌓아 페이지 가로 넘침을 막는다. 카드 지표는 모든 폭에서 3열. */
 @media (max-width: 1100px) {
   .duration-result-page .results-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
   .duration-result-page .results-shell { width: calc(100% - 28px); margin-left: auto; margin-right: auto; padding-left: 0; padding-right: 0; }
-  .route-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .route-card { padding: 20px; }
+  .route-metric { padding: 0 10px; }
   .duration-popover-content { padding: 10px 12px; }
 }
 
@@ -277,4 +279,13 @@
 .duration-example-note { margin-top: 3px; font-size: 9px; line-height: 1.4; }
 @media (max-width: 640px) {
   .duration-popover { max-width: 100%; }
+}
+
+/* 목적지 즐겨찾기: 요약 바의 도착지 이름 바로 옆. 이름+별을 nowrap 묶음으로 두어 줄바꿈 때 별만 떨어지지 않게 한다.
+   화면 폭으로 숨기지 않는다. 색은 .star-button(미선택 --muted-2 #99a3b6, 선택 주황)을 그대로 쓴다. */
+.summary-destination { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; white-space: nowrap; }
+#summary-to { min-width: 0; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-destination .star-button { flex-shrink: 0; min-width: 32px; min-height: 32px; padding: 4px; }
+@media (max-width: 640px) {
+  .summary-destination .star-button { min-width: 44px; min-height: 44px; }
 }
