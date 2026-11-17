@@ -1,4 +1,6 @@
 export const USE_MOCK = false;
+// 통계만 기존 예시 데이터를 사용한다. 실제 API 연동 시 false로 전환한다.
+export const USE_MOCK_STATS = true;
 // 장소 검색·경로 조회 모드만 제어한다. 로그인·즐겨찾기 등의 모드와 분리.
 export const USE_MOCK_ROUTES = false;
 export const BASE_URL = "/api";

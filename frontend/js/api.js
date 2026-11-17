@@ -3,7 +3,7 @@ import { GRAPH_DATA_SOURCE } from "/js/config.js";
 import { loadGraphPresentation } from "/js/graphData.js";
 // 서버 호출은 이 파일에만 둔다.
 // USE_MOCK이면 js/mock/*.json을 읽고, 서버가 계산할 값(시각, 필터링, 저장)만 여기서 흉내 낸다.
-import { USE_MOCK, USE_MOCK_ROUTES, BASE_URL, SOCIAL_AUTH_START_URLS } from "/js/config.js";
+import { USE_MOCK, USE_MOCK_STATS, USE_MOCK_ROUTES, BASE_URL, SOCIAL_AUTH_START_URLS } from "/js/config.js";
 import { addMinutes, dateOf, daysFrom, minutesBetween, toDateString } from "/js/utils.js";
 
 const MOCK_FAVORITES_KEY = "gilit:mock:favorites";
@@ -159,7 +159,7 @@ export async function getHistory() {
 }
 
 export async function getStats() {
-  if (!USE_MOCK) return requestJson(buildUrl("/stats"));
+  if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"));
 
   const stats = await readMock("stats.json");
   const shift = daysToToday(stats.dailyVisitors.at(-1).date);

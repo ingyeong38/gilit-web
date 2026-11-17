@@ -86,3 +86,27 @@ assert(headerContext.renderAccount({}).includes('길잇 사용자'));
 assert(headerContext.renderAccount({ name: '<script>' }).includes('&lt;script>'));
 assert(headerContext.renderAccount({ name: '길잇' }).includes('로그아웃'));
 console.log('PASS: 보호 화면 대기·로그인 후 표시·로그아웃 이동·헤더 로그인/비로그인·이름 누락·HTML 이스케이프 (모의 DOM)');
+
+// 세션 조회 중 로그아웃/계정 전환 시 오래된 성공·실패 응답을 버린다.
+for (const action of ['logout', 'switch']) {
+  for (const outcome of ['resolve', 'reject']) {
+    let finish;
+    const pendingSession = new Promise((resolve, reject) => { finish = outcome === 'resolve' ? () => resolve({ id: 'old' }) : () => reject({ status: 401 }); });
+    const { context, navigations } = setup({ result: '?auth_result=success', session: () => pendingSession });
+    context.sessionStorage.setItem('gilit:auth:return', '/pages/stats.html');
+    const pending = context.initializeAuth();
+    if (action === 'logout') context.logout();
+    else context.setUser({ id: 'new' });
+    finish(); await pending;
+    assert.equal(context.getUser()?.id ?? null, action === 'logout' ? null : 'new');
+    assert.equal(navigations.length, 0);
+    assert.equal(context.takeAuthMessage(), '');
+  }
+}
+const conflict = setup({ result: '?auth_result=email_exists', session: async () => { throw { status: 401 }; } }).context;
+await conflict.initializeAuth(); assert.match(conflict.takeAuthMessage(), /기존에 쓰던 방법/);
+const callbackOffline = setup({ result: '?auth_result=success', session: async () => { throw new Error('offline'); } }).context;
+await callbackOffline.initializeAuth(); assert.match(callbackOffline.takeAuthMessage(), /로그인 상태를 확인하지 못/);
+api.SOCIAL_AUTH_START_URLS.kakao = '/api/auth/kakao/start';
+assert.equal(api.getSocialLoginUrl('kakao'), 'https://gilit.test/api/auth/kakao/start');
+console.log('PASS: 로그아웃/계정 전환 후 지연 성공·실패 응답 무시·이메일 충돌 안내·콜백 연결 오류·카카오 시작 URL');
