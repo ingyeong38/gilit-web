@@ -93,8 +93,8 @@ function openAddModal() {
         if (current !== generation) return;
         favorites = [...favorites, created];
         render();
-      } catch {
-        showToast("장소를 저장하지 못했어요", { error: true });
+      } catch (error) {
+        showToast(serverMessage(error, "장소를 저장하지 못했어요"), { error: true });
       }
     },
   });
@@ -108,9 +108,14 @@ async function deletePlace(id) {
     if (current !== generation) return;
     favorites = favorites.filter((place) => place.id !== id);
     render();
-  } catch {
-    showToast("장소를 삭제하지 못했어요", { error: true });
+  } catch (error) {
+    showToast(serverMessage(error, "장소를 삭제하지 못했어요"), { error: true });
   }
+}
+
+// 4xx는 서버가 보낸 사용자용 문구를 그대로, 5xx·네트워크 오류는 기본 문구로 (docs/api-spec.md "오류").
+function serverMessage(error, fallback) {
+  return error?.status >= 400 && error.status < 500 && error.message ? error.message : fallback;
 }
 
 async function init() {

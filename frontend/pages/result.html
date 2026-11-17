@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
-  <link rel="stylesheet" href="/css/pages/result.css?v=card530-20261114-6" />
+  <link rel="stylesheet" href="/css/pages/result.css?v=favstar-20261117-3" />
 </head>
 <body class="duration-result-page">
   <div class="app">
@@ -17,7 +17,7 @@
       <main class="results-page">
         <div class="summary-bar">
           <div class="summary-inner">
-            <div class="summary-route"><span class="summary-dot start"></span><b id="summary-from"></b><span class="summary-line"></span><span class="summary-dot end"></span><b id="summary-to"></b></div>
+            <div class="summary-route"><span class="summary-dot start"></span><b id="summary-from"></b><span class="summary-line"></span><span class="summary-dot end"></span><span class="summary-destination"><b id="summary-to"></b><button class="star-button" id="destination-star" type="button" aria-label="목적지 즐겨찾기" aria-pressed="false" hidden><i data-icon="star" data-size="24"></i></button></span></div>
             <div class="summary-meta">
               <span><i data-icon="calendar" data-size="17"></i> <time id="summary-date"></time></span>
               <span><i data-icon="clock" data-size="17"></i> <time id="summary-time"></time> 도착</span>
@@ -49,6 +49,6 @@
   </div>
 
   <script type="module" src="/js/components/header.js"></script>
-  <script type="module" src="/js/pages/result.js?v=card530-20261114-6"></script>
+  <script type="module" src="/js/pages/result.js?v=favstar-20261117-3"></script>
 </body>
 </html>

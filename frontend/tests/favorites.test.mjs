@@ -46,7 +46,7 @@ assert.equal(requests[0].options.cache, 'no-store');
 console.log('PASS: 즐겨찾기 A/B 조회·추가·삭제 분리, 비로그인 차단, 공용 데이터 보존, 늦은 GET/POST/DELETE 응답 거부');
 
 const page = (await readFile(new URL('../js/pages/favorites.js', import.meta.url), 'utf8'))
-  .replace(/^import[\s\S]*?from ["'][^"']+["'];\n/gm, '');
+  .replace(/^import[\s\S]*?from ["'][^"']+["'];\r?\n/gm, '');
 const elements = new Map();
 const element = id => {
   if (!elements.has(id)) elements.set(id, { innerHTML: '', textContent: '', hidden: false, addEventListener() {} });

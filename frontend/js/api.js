@@ -105,10 +105,25 @@ export async function getFavorites() {
   return favorites;
 }
 
+// 서버는 좌표를 숫자로만 받는다 ("35.1" 같은 문자열은 400). 쿼리에서 온 문자열 좌표도 숫자로 바꾼다.
+function toCoordinate(value) {
+  const number = typeof value === "string" && value.trim() ? Number(value) : value;
+  return typeof number === "number" && Number.isFinite(number) ? number : null;
+}
+
+// POST /api/favorites 본문 (docs/api-spec.md). 좌표는 둘 다 있을 때만 보낸다. 없으면 서버가 주소로 찾는다.
+function favoriteBody({ name, address, type, lat, lng }) {
+  const body = { name, address, type };
+  const latitude = toCoordinate(lat);
+  const longitude = toCoordinate(lng);
+  if (latitude !== null && longitude !== null) Object.assign(body, { lat: latitude, lng: longitude });
+  return body;
+}
+
 export async function addFavorite(place) {
   const session = favoriteSession();
   if (!USE_MOCK) {
-    const created = await postJson("/favorites", place);
+    const created = await postJson("/favorites", favoriteBody(place));
     session.check();
     return created;
   }
