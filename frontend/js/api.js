@@ -64,8 +64,9 @@ export async function getRoutes({ from, to, arrive, buffer, fromLat, fromLng, to
   }));
 }
 
-export function getRouteGraph(search = {}) {
-  return loadGraphPresentation({ search, mode: GRAPH_DATA_SOURCE, baseUrl: BASE_URL, hostname: location.hostname });
+// routes: 같은 검색의 getRoutes 결과. 카드의 id·departTime을 card 파라미터로 보낸다.
+export function getRouteGraph(search = {}, routes = []) {
+  return loadGraphPresentation({ search, routes, mode: GRAPH_DATA_SOURCE, baseUrl: BASE_URL, hostname: location.hostname });
 }
 
 export async function searchPlaces(q = "") {

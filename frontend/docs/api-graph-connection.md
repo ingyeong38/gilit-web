@@ -35,6 +35,7 @@ python3 scripts/serve_frontend.py --port 8765 --directory frontend
 - `off`: 그래프 비활성화.
 
 실제 API의 카드와 그래프는 동일 `routeId`로만 연결한다.
+요청은 `/api/routes` 카드마다 `card=<id>@<departTime>`을 반복해 보낸다(departTime 없는 카드 제외, 최대 4개, 카드가 없으면 요청 안 함). 예: `GET /api/routes/graph?from=김해시청&to=동의대학교&arrive=2026-11-18T09:00:00%2B09:00&buffer=10&card=recommend%402026-11-18T08:20:00%2B09:00&card=time%402026-11-18T08:10:00%2B09:00`
 현재 실제 그래프 API는 미구현이다. 예시 `route-1/2/3`은 실제 카드의
 `recommend/time/distance/free`와 다르므로 임의로 변환하거나 연결하지 않는다.
 독립된 예시 선택기에서 예시 카드와 정확히 ID가 맞는 예시 그래프만 보여준다.
