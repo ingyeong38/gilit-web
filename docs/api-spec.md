@@ -10,7 +10,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | GET | `/api/places?q=` | 장소 검색 (카카오 모드 구현) | 불필요 | `searchPlaces` | `places.json` |
 | POST | `/api/departure` | 권장 출발시각 계산 (**구현됨**) | 불필요 | 없음 | - |
 | GET | `/api/routes?from=&to=&arrive=&buffer=` | 경로 비교: 옵션별 권장 출발시각·소요시간·거리·통행료 (**구현됨**) | 불필요 | `getRoutes` | `routes.json` |
-| GET | `/api/routes/graph?from=&to=&arrive=` | 출발시각별 소요시간 | 불필요 | `getRouteGraph` | `routeGraph.json` |
+| GET | `/api/routes/graph?from=&to=&arrive=&card=` | 출발시각별 소요시간 (**구현됨**) | 불필요 | `getRouteGraph` | `routeGraph.json` |
 | POST | `/api/auth/signup` | 이메일 회원가입 (**구현됨**) | 불필요 | `signup` | localStorage |
 | POST | `/api/auth/login` | 이메일 로그인 (**구현됨**) | 불필요 | `loginWithEmail` | localStorage |
 | POST | `/api/auth/logout` | 로그아웃 (**구현됨**) | 불필요 | `logoutSession` | 호출 안 함 |
@@ -101,7 +101,7 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 `USE_MOCK = true`이면 `api.js`가 서버 역할 일부를 대신한다. 실제 서버는 아래 값을 직접 계산해서 돌려준다.
 
 - 경로: `arriveTime`은 `arrive - buffer`, `departTime`은 `arriveTime - durationMin`
-- 그래프: 마지막 출발시각이 `arrive`가 되도록 시각을 옮긴다
+- 그래프: 예시 `js/mock/routeGraph.json`을 쓴다 (`routeId`는 예시 카드 `route-1/2/3`). 실제 서버는 `card`의 id를 `routeId`로 돌려준다 (아래 `GET /api/routes/graph`)
 - 기록·통계: 가장 최근 날짜가 오늘이 되도록 날짜를 옮긴다
 - 장소 검색: 앞뒤 공백을 제거한 `q`가 `name` 또는 `address`에 포함된 항목을 돌려준다
 - 회원가입·로그인: 계정을 `localStorage`의 `gilit:mock:users`에 저장한다. 비밀번호는 평문이 아닌 SHA-256 값으로 두지만, 브라우저 안의 흉내일 뿐이다. 서버는 bcrypt를 쓴다. 로그인 상태는 탭의 `sessionStorage`(`gilit:mock:session`)에만 둔다.
@@ -307,25 +307,93 @@ mock 모드 (`ROUTE_PROVIDER=mock`):
 - mock 모드에는 장소 검색이 없으므로 **좌표 파라미터가 필요하다**. 이름만 오면 422다. `GET /api/places`는 mock 모드에서 502다.
 - 프론트 `USE_MOCK_ROUTES=true`일 때는 서버를 부르지 않고 `js/mock/routes.json`을 쓴다. 이 둘은 다른 mock이다.
 
-### GET /api/routes/graph?from=&to=&arrive=
+### GET /api/routes/graph (구현됨, 소요시간 그래프 SFR-006)
 
-실제 API는 미구현이다. 실제 경로 모드에서는 프론트가 이 요청을 보내지 않고 차트를 숨긴다. 예시 모드는 기존 그래프를 유지한다.
+로그인: 불필요. 구현: `backend/app/api/routes.py`(API), `backend/app/route_graph.py`(슬롯 조회 서비스). 검색 기록은 남기지 않는다.
 
-요청: `GET /api/routes/graph?from=김해시청&to=동의대학교&arrive=2026-11-02T09:00:00%2B09:00`
+`GET /api/routes`로 받은 카드마다, 권장 출발시각 앞뒤 슬롯에 출발했을 때의 소요시간을 돌려준다. 프론트(`getRouteGraph`)는 `/api/routes` 응답을 받은 뒤 검색 하나에 한 번 부른다. 카드를 바꿔도 다시 부르지 않는다.
 
-경로별로 출발시각에 따른 소요시간을 돌려준다. `routeId`는 `/api/routes`의 `id`다.
+요청:
+
+```
+GET /api/routes/graph?from=김해시청&to=동의대학교&arrive=2026-11-13T09:00:00%2B09:00
+                     &fromLat=35.2285&fromLng=128.8894&toLat=35.1441&toLng=129.0336
+                     &card=recommend%402026-11-13T08:19:00%2B09:00&card=distance%402026-11-13T08:12:00%2B09:00
+```
+
+| 파라미터 | 필수 | 규칙 | 오류 `message` (400) |
+| --- | --- | --- | --- |
+| `from`, `to`, `arrive`, 좌표 4개 | | `GET /api/routes`와 같다 (좌표는 위도·경도를 함께, 지난 `arrive`는 400) | 위 `GET /api/routes` 표 참고 |
+| `card` | 예, **1~4개 반복** | `<경로 id>@<권장 출발시각>`. `/api/routes` 카드의 `id`와 `departTime`을 그대로 잇는다. 마지막 `@`를 기준으로 나눈다 | card는 1~4개 보내 주세요. / card는 <경로 id>@<출발시각> 형식이어야 합니다 (…). |
+| └ id | | 서버 `ROUTE_COMPARE_OPTIONS`의 옵션 키(기본 `recommend`, `time`, `distance`, `free`). 같은 id가 두 번 오면 거절 | card의 경로 id는 recommend, time, distance, free 중 하나여야 합니다. / 같은 경로 id의 card가 두 번 있습니다. |
+| └ 출발시각 | | 시간대가 있는 ISO 8601(`+`는 `%2B`, `Z` 가능). `arrive` 전 24시간 안(`arrive − 24시간 ≤ 시각 < arrive`). **지난 시각도 거절하지 않는다** (지난 슬롯만 뺀다) | card의 출발시각은 시간대가 있는 ISO 8601 형식이어야 합니다 (…). / card의 출발시각은 도착 희망 시각 전 24시간 안이어야 합니다. |
+| `buffer` | 아니오 | 받지만 **쓰지 않는다**. 어떤 값이어도 오류가 아니다 (프론트가 검색 조건을 그대로 보낸다) | - |
+
+좌표가 없으면 `/api/routes`처럼 장소 검색으로 이름을 확정한다 (못 하면 422).
+
+응답: `200`, 감싸지 않은 **배열**. 순서는 요청한 `card` 순서다.
 
 ```json
 [
   {
-    "routeId": "route-1",
+    "routeId": "recommend",
     "points": [
-      { "departTime": "2026-11-02T07:30:00+09:00", "durationMin": 45 },
-      { "departTime": "2026-11-02T07:40:00+09:00", "durationMin": 48 }
+      { "departTime": "2026-11-13T07:34:00+09:00", "durationMin": 29 },
+      { "departTime": "2026-11-13T07:49:00+09:00", "durationMin": 30 },
+      { "departTime": "2026-11-13T08:04:00+09:00", "durationMin": 31 },
+      { "departTime": "2026-11-13T08:19:00+09:00", "durationMin": 31 },
+      { "departTime": "2026-11-13T08:34:00+09:00", "durationMin": 30 },
+      { "departTime": "2026-11-13T08:49:00+09:00", "durationMin": 28 },
+      { "departTime": "2026-11-13T09:04:00+09:00", "durationMin": 27 }
     ]
   }
 ]
 ```
+
+위 숫자는 형식 설명용 예시다. 실제 교통 예측이 아니다.
+
+| 필드 | 설명 |
+| --- | --- |
+| `routeId` | 요청한 `card`의 id 그대로 (= 같은 검색의 `/api/routes` 카드 `id`, 합쳐진 카드는 그 카드의 `id`) |
+| `points[].departTime` | 슬롯 출발시각. 한국 시간 `+09:00`, 분 단위. 시간순 |
+| `points[].durationMin` | 그 시각에 출발했을 때의 예상 소요시간(분, 올림, 0 이상). 요약 조회(`summary=true`) 값이라 카드의 `durationMin`(상세 조회)과 1분쯤 다를 수 있다 |
+
+슬롯:
+
+- 카드 출발시각(분 단위 내림) 기준 **15분 간격, −45분 ~ +45분, 카드당 7개** (`GRAPH_SLOTS_BEFORE`·`GRAPH_SLOTS_AFTER`·`GRAPH_SLOT_INTERVAL_MIN`).
+- **지금 이전 슬롯은 뺀다.** 모든 슬롯이 지났으면 `[]`.
+- **`arrive` 이후(`arrive` 이상) 슬롯도 뺀다.** 뺀 슬롯은 호출 수·일일 예산·13개 상한에 세지 않고, 슬롯이 모두 빠진 카드는 응답 항목에서 뺀다.
+- 요청 하나의 슬롯 조회는 **최대 13개**다. 넘으면 권장 출발시각에 가까운 슬롯부터 카드를 번갈아 고른다. 그래서 모든 카드에 권장 출발시각과 ±15분 점이 남고, 카드 2개면 두 번째 카드의 +45분, 카드 4개면 카드당 3~4개가 된다.
+- 한 요청 안에서 같은 (출발지, 목적지, 분, 경로 옵션) 조회가 겹치면 한 번만 부른다. 지금은 카드 id와 옵션이 1:1이라 겹치지 않는다.
+
+부분 실패와 오류:
+
+- 일부 슬롯이 실패하면 **그 점만**, 한 카드의 점이 하나도 없으면 **그 항목만** 빼고 `200`이다. 이유는 서버 로그(`app.route_graph`, 장소 정보 없이 개수와 오류 종류)에만 남긴다.
+- 조회할 슬롯이 있었는데 점이 하나도 없을 때만 오류다. 우선순위: 호출 한도 → `503`, 시간 초과 → `504`, 그 밖에는 첫 실패를 기존 매핑으로 (`502` 공급자 오류, `422` 경로 없음).
+
+| 코드 | 언제 | `message` |
+| --- | --- | --- |
+| `400` | 위 표의 입력 오류, 지난 도착 희망 시각 | 표 참고 |
+| `422` | 장소를 확정하지 못함, 모든 슬롯에서 경로 없음 | 장소를 하나로 확인할 수 없어요. … / 해당 조건으로 자동차 경로를 찾을 수 없습니다. 등 |
+| `502` | 모든 슬롯이 카카오 인증 실패·요청 거부·연결 실패 | 길찾기 정보를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요. |
+| `503` | 카카오 호출 한도 초과 | 길찾기 API 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요. |
+| `503` | 그래프 일일 호출 예산 소진 (카카오를 부르지 않는다. 장소 검색 포함) | 오늘 소요시간 그래프 조회 한도를 모두 사용했습니다. 내일 다시 시도해 주세요. |
+| `504` | 모든 슬롯이 카카오 응답 시간 초과 | 길찾기 서버 응답이 늦습니다. 잠시 후 다시 시도해 주세요. |
+| `504` | 서버 시간 예산 안에 점을 하나도 받지 못함 | 소요시간 그래프를 제시간에 계산하지 못했습니다. 잠시 후 다시 시도해 주세요. |
+
+서버 동작:
+
+- **캐시하지 않는다.** 카카오모빌리티 약관상 길찾기 응답은 임시로도 캐시할 수 없다. 그래서 그래프는 응답을 저장하지 않고(같은 요청도 매번 조회), 슬롯 조회는 카카오 Provider의 메모리 캐시(`ROUTE_CACHE_TTL_SEC`)를 읽지도 쓰지도 않는다. `/api/routes`·`/api/departure`의 기존 캐시 동작은 바꾸지 않았다 (아래 "열린 문제"). 응답에는 `Cache-Control: no-store`가 붙는다.
+- 동시 조회: 슬롯은 작업 스레드 `GRAPH_MAX_WORKERS`(기본 4)개로 동시에 조회한다. 작업 스레드는 프로세스에 하나의 풀로 두고 모든 그래프 요청이 함께 쓴다. 카카오 HTTP 세션은 작업 스레드마다 따로 쓴다 (`requests.Session`은 스레드 안전을 보장하지 않는다).
+- 시간 예산: 요청 하나에 `GRAPH_TIME_BUDGET_SEC`(기본 8초, 프론트 제한 10초). 넘으면 그때까지 받은 점만 돌려주고 남은 조회는 시작하지 않는다. 이미 시작한 조회는 카카오 제한 시간(10초)까지 뒤에서 끝나고 결과는 버린다.
+- 일일 예산: 그래프 전용 카카오 호출 `GRAPH_DAILY_CALL_BUDGET`(기본 1,500회/일, KST 날짜가 바뀌면 0부터). 실제로 부른 조회만 센다 (합쳐진 조회·건너뛴 슬롯은 세지 않는다). 다 쓰면 카카오를 부르지 않고 `503`. 프로세스 메모리에 세므로 워커가 하나일 때 정확하고, 재시작하면 0부터다. 카카오 일일 쿼터(5,000건)는 `/api/routes`와 함께 쓴다.
+- 요청당 카카오 호출: 슬롯 최대 13회 (+ 좌표가 없으면 장소 검색). 1,500회면 하루 약 115~215회 그래프다.
+- mock 모드(`ROUTE_PROVIDER=mock`)도 같은 규칙으로 가짜 소요시간을 돌려준다 (좌표 필요).
+
+열린 문제:
+
+- `/api/routes`·`/api/departure`는 지금도 카카오 응답을 Provider 캐시와 전체 응답 캐시(`RouteResultCache`)에 저장한다. 약관과 맞는지 따로 확인해야 한다. 이번에는 그래프만 캐시 없이 만들었다.
+- 프론트는 아직 `card`를 보내지 않는다 (`frontend/js/graphData.js`). `card`가 없으면 이 API는 `400`을 주므로, 프론트가 `card`를 보내기 전까지 그래프는 "불러오지 못했습니다"로 표시된다 (로컬 예시 그래프는 `404`일 때만 나온다).
 
 ## 회원 (`users`, `social_accounts`)
 

@@ -45,6 +45,20 @@ class RouteProvider(ABC):
         """경로 옵션(우선순위·회피)별 자동차 경로의 소요시간·거리·통행료."""
         raise NotImplementedError(f"{type(self).__name__}는 경로 옵션별 요약을 지원하지 않습니다.")
 
+    def get_route_summary_uncached(
+        self,
+        origin: Coordinate,
+        dest: Coordinate,
+        depart_at: datetime,
+        option: RouteOption = DEFAULT_ROUTE_OPTION,
+    ) -> RouteSummary:
+        """캐시를 읽지도 쓰지도 않는 요약 조회 (소요시간 그래프. 카카오 약관상 응답 캐시 불가).
+
+        캐시가 없는 Provider는 get_route_summary와 같다. 캐시를 두는 Provider는 반드시 덮어쓴다.
+        여러 작업 스레드에서 동시에 불릴 수 있다.
+        """
+        return self.get_route_summary(origin, dest, depart_at, option)
+
     def get_detailed_route(
         self,
         origin: Coordinate,

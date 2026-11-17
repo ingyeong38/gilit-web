@@ -92,10 +92,12 @@ vm.runInContext(strip(await read('../js/graphData.js')),api);
 vm.runInContext(strip(await read('../js/api.js')),api);
 assert.equal((await api.getRouteGraph()).graphs.length,0);assert.equal(apiCalls.length,0);
 api.GRAPH_DATA_SOURCE="api"; response=routeGraphs;
-assert.equal((await api.getRouteGraph({from:'서울 & 부산',to:'김해',arrive:'2026-11-15T09:00:00+09:00'})).graphs,routeGraphs);
+const graphCards=[{id:'recommend',departTime:'2026-11-15T08:20:00+09:00'}]; // getRoutes 카드 -> card 파라미터
+assert.equal((await api.getRouteGraph({from:'서울 & 부산',to:'김해',arrive:'2026-11-15T09:00:00+09:00'},graphCards)).graphs,routeGraphs);
 assert.equal(new URL(apiCalls[0].url,'http://localhost').searchParams.get('from'),'서울 & 부산');
-assert(apiCalls[0].options.signal); fail=true; await assert.rejects(api.getRouteGraph());
-api.fetch=(url,options)=>new Promise((resolve,reject)=>{options.signal.onabort=()=>reject(Error("aborted"));}); const late=api.getRouteGraph(); timer(); await assert.rejects(late); assert(aborted);
+assert.deepEqual(new URL(apiCalls[0].url,'http://localhost').searchParams.getAll('card'),['recommend@2026-11-15T08:20:00+09:00']);
+assert(apiCalls[0].options.signal); fail=true; await assert.rejects(api.getRouteGraph({},graphCards));
+api.fetch=(url,options)=>new Promise((resolve,reject)=>{options.signal.onabort=()=>reject(Error("aborted"));}); const late=api.getRouteGraph({},graphCards); timer(); await assert.rejects(late); assert(aborted);
 console.log('PASS: API 대기 시 무호출·실제 모드 URL/시그널·실패·10초 지연 취소·가짜 데이터 대체 없음');
 
 // 결과 화면의 기존 카드 선택과 지도 호출은 유지하면서 그래프만 갱신한다.

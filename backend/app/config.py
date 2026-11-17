@@ -13,6 +13,7 @@ from app.auth.oauth import GoogleOAuthClient, KakaoOAuthClient, MockOAuthClient,
 from app.auth.service import AUTH_STORES
 from app.db import MySQLConfig
 from app.departure import ROUTE_OPTIONS, KakaoRouteProvider, MockRouteProvider, RouteOption, RouteProvider, SolverConfig
+from app.route_graph import GraphConfig
 
 ROUTE_PROVIDERS = ("mock", "kakao")
 # 로컬 개발용 프론트 주소 (VS Code Live Server 기본 포트)
@@ -39,6 +40,13 @@ class Settings:
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     route_compare_options: tuple[str, ...] = tuple(ROUTE_OPTIONS)  # 경로 비교에 쓸 옵션과 카드 순서
     route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
+    # 소요시간 그래프 (GET /api/routes/graph). 카카오 약관상 응답 캐시가 불가하므로 캐시 설정은 두지 않는다.
+    graph_slots_before: int = 3  # 카드 출발시각 앞 슬롯 수
+    graph_slots_after: int = 3  # 뒤 슬롯 수
+    graph_slot_interval_min: int = 15  # 슬롯 간격(분)
+    graph_time_budget_sec: float = 8  # 요청 하나의 서버 시간 예산. 넘으면 받은 점까지 돌려준다 (프론트 제한 10초)
+    graph_max_workers: int = 4  # 슬롯 동시 조회 수 (앱 전체 공유)
+    graph_daily_call_budget: int = 1500  # 그래프 전용 일일 카카오 호출 수 (KST 날짜 기준, 프로세스별)
     auth_store: str = "memory"  # 회원·세션 저장소. memory(재시작하면 사라짐) | mysql
     cookie_secure: bool = True  # 세션 쿠키의 Secure 속성. 로컬 http에서 쿠키가 안 실리면 false
     secret_key: str | None = field(default=None, repr=False)  # 서명용 비밀 값 (OAuth state 쿠키)
@@ -73,6 +81,12 @@ class Settings:
             cors_origins=_cors_origins_env(env),
             route_compare_options=_route_compare_options_env(env),
             route_compare_max_calls=_int_env(env, "ROUTE_COMPARE_MAX_CALLS", cls.route_compare_max_calls),
+            graph_slots_before=_int_env(env, "GRAPH_SLOTS_BEFORE", cls.graph_slots_before, minimum=0),
+            graph_slots_after=_int_env(env, "GRAPH_SLOTS_AFTER", cls.graph_slots_after, minimum=0),
+            graph_slot_interval_min=_int_env(env, "GRAPH_SLOT_INTERVAL_MIN", cls.graph_slot_interval_min, minimum=1),
+            graph_time_budget_sec=_positive_float_env(env, "GRAPH_TIME_BUDGET_SEC", cls.graph_time_budget_sec),
+            graph_max_workers=_int_env(env, "GRAPH_MAX_WORKERS", cls.graph_max_workers, minimum=1),
+            graph_daily_call_budget=_int_env(env, "GRAPH_DAILY_CALL_BUDGET", cls.graph_daily_call_budget, minimum=0),
             auth_store=_auth_store_env(env),
             cookie_secure=_bool_env(env, "COOKIE_SECURE", cls.cookie_secure),
             secret_key=env.get("SECRET_KEY", "").strip() or None,
@@ -121,6 +135,14 @@ class Settings:
 
     def route_options(self) -> tuple[RouteOption, ...]:
         return tuple(ROUTE_OPTIONS[key] for key in self.route_compare_options)
+
+    def graph_config(self) -> GraphConfig:
+        return GraphConfig(
+            slots_before=self.graph_slots_before,
+            slots_after=self.graph_slots_after,
+            interval_min=self.graph_slot_interval_min,
+            max_workers=self.graph_max_workers,
+        )
 
 
 def create_route_provider(settings: Settings) -> RouteProvider:
@@ -174,14 +196,30 @@ def _redirect_base_env(env: Mapping[str, str]) -> str | None:
     return value
 
 
-def _int_env(env: Mapping[str, str], name: str, default: int) -> int:
+def _int_env(env: Mapping[str, str], name: str, default: int, minimum: int | None = None) -> int:
     value = env.get(name, "").strip()
     if not value:
         return default
     try:
-        return int(value)
+        number = int(value)
     except ValueError:
         raise ValueError(f"{name}는 정수여야 합니다: {value}") from None
+    if minimum is not None and number < minimum:
+        raise ValueError(f"{name}는 {minimum} 이상이어야 합니다: {value}")
+    return number
+
+
+def _positive_float_env(env: Mapping[str, str], name: str, default: float) -> float:
+    value = env.get(name, "").strip()
+    if not value:
+        return default
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError(f"{name}는 숫자여야 합니다: {value}") from None
+    if not (number > 0 and number != float("inf")):
+        raise ValueError(f"{name}는 0보다 큰 숫자여야 합니다: {value}")
+    return number
 
 
 TRUE_VALUES = ("1", "true", "yes", "on")
