@@ -77,7 +77,7 @@ class MemoryBackend:
         self.history = MemoryHistoryStore()
 
     def history_rows(self) -> list[tuple[int, int | None]]:
-        """분리된 행을 포함한 검색 기록 전체 (id, user_id), id 순."""
+        """검색 기록 전체 (id, user_id), id 순."""
         return [(row.id, row.user_id) for row in self.history.rows()]
 
     def add_social_only_user(self, email: str | None, nickname: str) -> User:

@@ -15,6 +15,7 @@ MySQL 8.0.16 이상 (AWS RDS for MySQL 8), 문자셋 `utf8mb4`, 엔진 InnoDB.
 | `001_users_email_nullable.sql` | `users.email` NULL 허용 (카카오 가입자는 이메일이 없을 수 있다) |
 | `002_sessions.sql` | 로그인 세션 테이블 `sessions` |
 | `003_favorite_places_constraints.sql` | `favorite_places`: UNIQUE(user_id, place_name), CHECK(label), `idx_favorite_user` 삭제. 적용 전 중복 확인 쿼리가 파일 맨 위에 있다 |
+| `004_search_history_user_not_null.sql` | `search_history.user_id` NOT NULL, `fk_history_user`를 ON DELETE CASCADE로. 적용 전 NULL 행 확인·삭제 쿼리가 파일 맨 위에 있다 (로컬 DB만 해당) |
 
 **이미 만든 DB에 어디까지 적용됐는지 확인하기** (관리자든 서비스 계정이든 된다):
 
@@ -23,7 +24,10 @@ SELECT 'sessions(002)' AS step, COUNT(*) > 0 AS applied FROM information_schema.
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sessions'
 UNION ALL
 SELECT 'uq_favorite_user_name(003)', COUNT(*) > 0 FROM information_schema.STATISTICS
-  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'favorite_places' AND INDEX_NAME = 'uq_favorite_user_name';
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'favorite_places' AND INDEX_NAME = 'uq_favorite_user_name'
+UNION ALL
+SELECT 'search_history.user_id NOT NULL(004)', COUNT(*) > 0 FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'search_history' AND COLUMN_NAME = 'user_id' AND IS_NULLABLE = 'NO';
 ```
 
 ## ERD
@@ -33,7 +37,7 @@ erDiagram
   users ||--o{ social_accounts : "소셜 연결"
   users ||--o{ sessions : "로그인 세션"
   users ||--o{ favorite_places : "즐겨찾기"
-  users |o--o{ search_history : "검색 (비로그인은 NULL)"
+  users ||--o{ search_history : "검색 (로그인 사용자만)"
   users |o--o{ visit_logs : "방문 (비로그인은 NULL)"
 
   users {
@@ -137,12 +141,12 @@ erDiagram
 
 ### search_history
 
-길찾기 검색 기록. 사용자의 "최근 검색"이면서 이용 통계(검색 수, 인기 출발지·목적지)의 원본이다. 그래서 **행을 고치거나 지우지 않고 쌓기만 한다.**
+길찾기 검색 기록. 로그인 사용자의 "최근 검색"이다. `user_id`는 NOT NULL이고 사용자를 지우면 함께 지워진다 (`ON DELETE CASCADE`, 마이그레이션 004). 이용 통계(검색 수, 인기 출발지·목적지)도 이 행으로 센다.
 
-- 저장: 서버가 `GET /api/routes`가 성공했을 때 저장한다 (`backend/app/history/recording.py`). 비로그인 검색은 `user_id` NULL. 로그인 사용자의 같은 검색은 5분 안에 다시 저장하지 않는다.
-- 사용자 화면의 "같은 검색" 묶기와 삭제는 서버가 한다. 삭제(내 기록에서 지우기)와 탈퇴는 모두 `user_id`를 NULL로 바꾸는 분리라 통계 행은 남는다 (`ON DELETE SET NULL`과 같은 결과).
-- 사용자에게 연결된 행은 최근 200개까지만 유지하고, 넘으면 오래된 것부터 분리한다 (조회 비용을 일정하게).
-- **개인정보:** `user_id`가 NULL인 행은 식별자 없는 통계 데이터다. 저장하는 값은 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간, 권장 출발 시각, 이동수단, 저장 시각이고, IP·쿠키·기기 정보는 저장하지 않는다.
+- 저장: 서버가 `GET /api/routes`가 성공했을 때 저장한다 (`backend/app/history/recording.py`). 비로그인 검색은 저장하지 않는다. 로그인 사용자의 같은 검색은 5분 안에 다시 저장하지 않는다.
+- 사용자 화면의 "같은 검색" 묶기와 삭제는 서버가 한다. 삭제(내 기록에서 지우기)는 그 묶음의 행을 지운다.
+- 사용자당 최근 200개 행까지만 유지하고, 넘으면 오래된 것부터 지운다 (조회 비용을 일정하게).
+- **개인정보:** 저장하는 값은 출발지·목적지 이름과 좌표, 도착 희망 시각, 여유시간, 권장 출발 시각, 이동수단, 저장 시각이고, IP·쿠키·기기 정보는 저장하지 않는다.
 - `arrive_at`: 도착 희망 시각, `buffer_min`: 여유 시간(분, 0 이상)
 - `recommended_depart_at`: 추천 경로의 권장 출발 시각 (추천 카드가 없던 검색은 NULL)
 - `travel_mode`: `car` 또는 `transit` (CHECK 제약). 지금 서비스는 `car`만 쓴다.
@@ -171,7 +175,7 @@ erDiagram
 | favorite_places | `fk_favorite_user` → users, CASCADE | |
 | search_history | `idx_history_user_created` (user_id, created_at) | 내 검색 기록 최신순 |
 | search_history | `idx_history_dest` (dest_name), `idx_history_origin` (origin_name) | 인기 목적지·출발지 |
-| search_history | `fk_history_user` → users, SET NULL | |
+| search_history | `fk_history_user` → users, CASCADE | 004에서 SET NULL → CASCADE |
 | visit_logs | `idx_visit_created` (created_at) | 일별·월별 방문자 |
 | visit_logs | `idx_visit_path` (path) | 페이지별 방문 |
 | visit_logs | `idx_visit_user` (user_id) | FK 검사 |
@@ -223,9 +227,11 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/001_users_email_nullable.sql"
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/002_sessions.sql"
      mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/003_favorite_places_constraints.sql"
+     mysql -u root -p --default-character-set=utf8mb4 gilit -e "source db/migrations/004_search_history_user_not_null.sql"
      ```
 
      003은 같은 사용자의 이름이 겹치는 즐겨찾기가 있으면 실패한다. 먼저 파일 맨 위의 "적용 전 확인 쿼리"를 실행해 결과가 비어 있는지 본다. 003이 적용되지 않은 `gilit_test`에서는 `pytest -m mysql_live`의 즐겨찾기 테스트가 "마이그레이션 003이 적용되지 않았습니다"로 멈춘다 (회원 테스트는 그대로 돈다).
+     004는 `user_id`가 NULL인 행이 있으면 실패한다. 파일 맨 위의 확인 쿼리로 개수를 보고, 로컬 DB라면 안내된 DELETE로 지운 뒤 적용한다. 004가 적용되지 않은 `gilit_test`에서는 `pytest -m mysql_live`의 `test_migration_004_structure`가 실패한다.
 
    Git Bash·macOS·Linux는 `-e "source ..."` 대신 `< db/schema.sql`도 된다. PowerShell은 `<` 리디렉션이 안 되므로 `-e "source ..."`를 쓴다.
 

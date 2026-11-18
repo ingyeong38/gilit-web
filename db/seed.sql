@@ -38,11 +38,7 @@ INSERT INTO search_history
    'car', NULL, NOW() - INTERVAL 1 DAY),
   (3, 2, '센텀시티', 35.1690000, 129.1316000, '동의대학교', 35.1441000, 129.0336000,
    DATE(NOW()) - INTERVAL 2 DAY + INTERVAL 10 HOUR, 5, DATE(NOW()) - INTERVAL 2 DAY + INTERVAL 9 HOUR + INTERVAL 20 MINUTE,
-   'car', NULL, NOW() - INTERVAL 2 DAY),
-  -- 비로그인 검색
-  (4, NULL, '김해시청', 35.2285000, 128.8894000, '부산역', 35.1151000, 129.0414000,
-   DATE(NOW()) + INTERVAL 14 HOUR, 0, NULL,
-   'car', NULL, NOW() - INTERVAL 30 MINUTE)
+   'car', NULL, NOW() - INTERVAL 2 DAY)
 ON DUPLICATE KEY UPDATE id = id;
 
 INSERT INTO visit_logs (id, user_id, session_id, path, created_at) VALUES
