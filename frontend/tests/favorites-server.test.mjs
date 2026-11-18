@@ -127,12 +127,14 @@ const toasts = [];
 const calls = [];
 let serverFavorites = [];
 let authListener;
+let redirecting = false;
 const placeUtils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
 vm.runInContext(strip(await readFile(new URL('../js/utils.js', import.meta.url), 'utf8')), placeUtils);
 const page = vm.createContext({
   USE_MOCK: false, USE_MOCK_FAVORITES: false,
   document: { querySelector: () => null, getElementById: (id) => ({ 'destination-star': star, 'summary-to': label })[id] ?? null },
   getUser: () => user, initializeAuth: async () => {}, onAuthChange: (fn) => { authListener = fn; },
+  isRedirecting: () => redirecting,
   showToast: (message, options) => toasts.push({ message, error: !!options?.error }),
   getFavorites: async () => { calls.push(['get']); return serverFavorites; },
   addFavorite: async (place) => { calls.push(['add', place]); return { ...place, id: '7' }; },
@@ -239,6 +241,17 @@ authListener();
 await clickStar();
 assert.deepEqual(calls, []);
 assert.equal(toasts.at(-1).message, '로그인이 필요합니다.');
+
+// 로그인 직후 메인 화면으로 이동 중(isRedirecting)이면 즐겨찾기 목록을 요청하지 않는다
+user = { id: 'A' };
+calls.length = 0;
+redirecting = true;
+await page.loadDestinationFavorite('동의대학교');
+assert.deepEqual(calls, []);
+redirecting = false;
+await page.loadDestinationFavorite('동의대학교');
+assert.deepEqual(calls, [['get']]);
+user = null;
 
 // 목업 모드: 좌표가 없어도 기존처럼 저장 (위에서 찾은 결과(일치 없음)를 다시 찾지 않고 주소는 이름으로)
 vm.runInContext('USE_MOCK_FAVORITES = true', page);
