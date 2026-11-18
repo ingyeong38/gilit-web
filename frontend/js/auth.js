@@ -96,5 +96,30 @@ export function initializeAuth() {
   return initialization;
 }
 
+// 화면이 다시 보일 때(bfcache 복원, 탭 복귀) 서버 세션을 다시 확인한다. 다른 탭에서 계정을 바꿨거나
+// 로그아웃했으면 setUser/logout으로 인증 변경 이벤트를 내보내 화면이 현재 계정 데이터를 다시 불러오게 한다.
+// 같은 계정이면 아무것도 하지 않는다. 확인 중 로그인·로그아웃이 일어나면 이 응답은 버린다.
+// 네트워크 오류(401 이외)는 판단할 수 없으므로 지금 상태를 유지한다.
+export async function recheckAuth() {
+  await initializeAuth();
+  if (redirecting) return;
+  const version = authVersion;
+  let current;
+  try {
+    if (USE_MOCK) {
+      const saved = sessionStorage.getItem(MOCK_SESSION);
+      current = saved ? JSON.parse(saved) : null;
+    } else {
+      current = await getSessionUser();
+    }
+  } catch (error) {
+    if (error?.status !== 401) return;
+    current = null;
+  }
+  if (version !== authVersion || redirecting) return;
+  if (!current) { if (user) logout(); return; }
+  if (current.id !== user?.id) setUser(current);
+}
+
 window.addEventListener("pageshow", () => { redirecting = false; });
 export function onAuthChange(listener) { window.addEventListener(AUTH_CHANGE_EVENT, listener); }

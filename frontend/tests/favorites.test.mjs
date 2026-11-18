@@ -53,14 +53,15 @@ const element = id => {
   return elements.get(id);
 };
 let authListener, modal, pendingReads = [], reads = 0, reloads = 0;
-const events = {};
+const events = {}, docEvents = {};
+let rechecks = 0;
 user = { id: 'A' };
 const pageCtx = vm.createContext({
   URLSearchParams, location: { search: '', reload: () => reloads++ },
-  document: { getElementById: element, querySelectorAll: () => [] },
+  document: { getElementById: element, querySelectorAll: () => [], addEventListener: (type, fn) => { docEvents[type] = fn; }, visibilityState: 'visible' },
   window: { addEventListener: (type, fn) => { events[type] = fn; } },
   getUser: () => user, onAuthChange: fn => { authListener = fn; },
-  requirePageAccess: () => Promise.resolve(), renderIcons() {}, icon: () => '', escapeHtml: String,
+  requirePageAccess: () => Promise.resolve(), renderIcons() {}, icon: () => '', escapeHtml: String, recheckAuth: () => { rechecks++; },
   getFavorites: () => { reads++; return new Promise(r => pendingReads.push(r)); },
   getHistory: async () => [], showToast() {},
   openAddPlaceModal: value => { modal = value; },

@@ -121,11 +121,39 @@ export function formatRouteLabel(route) {
   return labels.length > 1 ? labels.join(" · ") : route.label;
 }
 
-export function buildResultUrl({ from, to, date, time, buffer, ...coordinates }) {
+// 검색 기록 카드(GET /api/history)의 좌표를 결과 화면 쿼리용으로 고른다. 위도·경도가 둘 다 범위 안의 숫자인 쌍만 넣는다.
+// (기록 좌표는 null일 수 있다. 그때는 넣지 않고 결과 화면이 이름으로 찾는다.)
+export function historyCoordinates(item = {}) {
+  const coordinates = {};
+  for (const prefix of ["from", "to"]) {
+    const lat = item[`${prefix}Lat`], lng = item[`${prefix}Lng`];
+    if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)
+      && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      coordinates[`${prefix}Lat`] = lat;
+      coordinates[`${prefix}Lng`] = lng;
+    }
+  }
+  return coordinates;
+}
+
+// 장소 주소(자동완성 결과의 address, 결과 화면 쿼리의 toAddress). 즐겨찾기 address 한도(255자, docs/api-spec.md)에 맞춘다.
+// 문자열이 아니거나, 비었거나, 너무 길거나, 제어 문자가 있으면 null. 화면에 넣을 때는 따로 escapeHtml을 거친다.
+export const MAX_PLACE_ADDRESS_LENGTH = 255;
+export function placeAddress(value) {
+  if (typeof value !== "string") return null;
+  const address = value.trim();
+  if (!address || address.length > MAX_PLACE_ADDRESS_LENGTH || /[\u0000-\u001f\u007f-\u009f]/.test(address)) return null;
+  return address;
+}
+
+// toAddress: 길찾기 화면에서 자동완성으로 고른 목적지의 주소. 결과 화면의 별 저장이 주소로 쓴다 (서버로는 보내지 않는다).
+export function buildResultUrl({ from, to, date, time, buffer, toAddress, ...coordinates }) {
   const params = { from, to, date, time, buffer };
   for (const key of ["fromLat", "fromLng", "toLat", "toLng"]) {
     if (coordinates[key] !== undefined && coordinates[key] !== null) params[key] = coordinates[key];
   }
+  const address = placeAddress(toAddress);
+  if (address) params.toAddress = address;
   return `/pages/result.html?${new URLSearchParams(params)}`;
 }
 

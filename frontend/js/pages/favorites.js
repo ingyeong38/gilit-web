@@ -1,4 +1,4 @@
-import { getUser, onAuthChange } from "/js/auth.js";
+import { getUser, onAuthChange, recheckAuth } from "/js/auth.js";
 import { addFavorite, getFavorites, getHistory, removeFavorite } from "/js/api.js";
 import { openAddPlaceModal } from "/js/components/addPlaceModal.js";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -9,6 +9,7 @@ import {
   dateOf,
   escapeHtml,
   formatRelativeDate,
+  historyCoordinates,
   nextDateForTime,
   timeOf,
 } from "/js/utils.js";
@@ -46,6 +47,8 @@ function renderHistoryCard(item) {
     date: nextDateForTime(time),
     time,
     buffer: REPEAT_BUFFER,
+    // 기록에 좌표가 있으면 함께 넘겨 결과 화면의 경로 조회·별 저장이 그 좌표를 그대로 쓴다.
+    ...historyCoordinates(item),
   });
   return `
     <article class="saved-card">
@@ -150,9 +153,11 @@ content.addEventListener("click", (event) => {
 requirePageAccess().then(init);
 
 // 메모리와 BFCache의 화면도 인증 경계에서 폐기한다. 저장된 데이터는 지우지 않는다.
+// 기록도 계정 데이터이므로 함께 비운다 (다시 불러오기가 실패해도 이전 계정의 기록이 남지 않게).
 function clearFavoriteView() {
   generation++;
   favorites = [];
+  history = [];
   render();
 }
 onAuthChange(() => {
@@ -165,4 +170,8 @@ window.addEventListener("pageshow", (event) => {
     clearFavoriteView();
     location.reload(); // 초기 인증 검사를 다시 수행한 뒤 현재 계정 목록을 조회한다.
   }
+});
+// 다른 탭에서 계정을 바꾸고 돌아오면 세션을 다시 확인한다. 바뀌었으면 위 onAuthChange가 화면을 비우고 다시 불러온다.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") recheckAuth();
 });

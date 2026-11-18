@@ -127,6 +127,8 @@ const toasts = [];
 const calls = [];
 let serverFavorites = [];
 let authListener;
+const placeUtils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
+vm.runInContext(strip(await readFile(new URL('../js/utils.js', import.meta.url), 'utf8')), placeUtils);
 const page = vm.createContext({
   USE_MOCK: false, USE_MOCK_FAVORITES: false,
   document: { querySelector: () => null, getElementById: (id) => ({ 'destination-star': star, 'summary-to': label })[id] ?? null },
@@ -137,6 +139,7 @@ const page = vm.createContext({
   removeFavorite: async (id) => { calls.push(['remove', id]); },
   searchPlaces: async () => [{ name: '동의대학교', address: '부산광역시 부산진구 엄광로 176' }],
   icon: (name) => `<svg data-name="${name}"></svg>`, escapeHtml: String, formatRouteLabel: (r) => r.label,
+  placeAddress: placeUtils.placeAddress,
   dateOf: () => '2026-11-15', timeOf: (v) => v?.slice(11, 16) ?? '', formatBuffer: String, formatWon: String,
 });
 vm.runInContext(resultSource, page);
@@ -158,11 +161,14 @@ assert.equal(label.title, '동의대학교');
 assert.equal(star.listeners.click.length, 1);
 assert.equal(star.attrs['aria-pressed'], 'false');
 
-// 추가: 숫자 좌표 + 생성 id 보관 → 별 활성
+// 추가: 쿼리 좌표를 숫자로 그대로 쓰고 이름 검색은 하지 않는다 + 생성 id 보관 → 별 활성
 calls.length = 0;
+let placeSearches = 0;
+page.searchPlaces = async () => { placeSearches++; return [{ name: '동의대학교', address: '부산광역시 부산진구 엄광로 176' }]; };
 await clickStar();
 assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([type]) => type === 'add')[1])),
-  { name: '동의대학교', address: '부산광역시 부산진구 엄광로 176', type: '기타', lat: 35.1438, lng: 129.0345 });
+  { name: '동의대학교', address: '동의대학교', type: '기타', lat: 35.1438, lng: 129.0345 });
+assert.equal(placeSearches, 0);
 assert.equal(favoriteId(), '7');
 assert.ok(star.classes.has('active') && star.attrs['aria-pressed'] === 'true');
 assert.equal(toasts.at(-1).message, '즐겨찾기에 저장했어요');
@@ -186,7 +192,7 @@ assert.equal(toasts.at(-1).message, '즐겨찾기에 저장하지 못했어요')
 assert.equal(favoriteId(), null);
 page.addFavorite = realAdd;
 
-// 좌표 없는 목적지: POST를 보내지 않고 안내
+// 좌표 없는 목적지: 이름이 같은 결과에 좌표가 없으면 POST를 보내지 않고 안내
 calls.length = 0;
 await page.toggleDestinationFavorite({ to: '동의대학교' });
 assert.ok(!calls.some(([type]) => type === 'add'));
@@ -234,13 +240,13 @@ await clickStar();
 assert.deepEqual(calls, []);
 assert.equal(toasts.at(-1).message, '로그인이 필요합니다.');
 
-// 목업 모드: 좌표가 없어도 기존처럼 저장
+// 목업 모드: 좌표가 없어도 기존처럼 저장 (위에서 찾은 결과(일치 없음)를 다시 찾지 않고 주소는 이름으로)
 vm.runInContext('USE_MOCK_FAVORITES = true', page);
 user = { id: 'A' };
 calls.length = 0;
 page.addFavorite = async (place) => { calls.push(['add', place]); return { ...place, id: 'mock-1' }; };
 await page.toggleDestinationFavorite({ to: '동의대학교' });
 assert.deepEqual(JSON.parse(JSON.stringify(calls.find(([type]) => type === 'add')[1])),
-  { name: '동의대학교', address: '부산광역시 부산진구 엄광로 176', type: '기타' });
+  { name: '동의대학교', address: '동의대학교', type: '기타' });
 assert.equal(favoriteId(), 'mock-1');
 console.log('PASS: 결과 화면 목적지 별 1개(카드 별 없음), 클릭 추가·해제, 생성·목록 id 보관, 좌표 없는 목적지 미요청, 서버 문구 표시, 계정 전환 초기화, 목업 저장 유지');

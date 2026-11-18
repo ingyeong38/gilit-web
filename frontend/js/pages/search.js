@@ -1,7 +1,7 @@
 import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
 import { setupAutocomplete } from "/js/components/placeAutocomplete.js";
 import { getFavorites, getHistory } from "/js/api.js";
-import { getUser, initializeAuth, isRedirecting, onAuthChange } from "/js/auth.js";
+import { getUser, initializeAuth, isRedirecting, onAuthChange, recheckAuth } from "/js/auth.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { showToast } from "/js/components/toast.js";
 import {
@@ -9,9 +9,11 @@ import {
   dateOf,
   escapeHtml,
   formatRelativeDate,
+  historyCoordinates,
   isValidDate,
   isValidTime,
   nextDateForTime,
+  placeAddress,
   timeOf,
   validateSearchConditions,
 } from "/js/utils.js";
@@ -100,7 +102,9 @@ function submit() {
       coordinates[`${prefix}Lng`] = place.lng;
     }
   });
-  goToResult({ from, to, date: dateInput.value, time: timeInput.value, buffer, ...coordinates });
+  // 자동완성으로 고른 목적지는 주소를 안다. 결과 화면의 별 저장이 주소로 쓰도록 함께 넘긴다 (형식이 맞을 때만).
+  const toAddress = placeAddress(autocompletes[1].getPlace()?.address);
+  goToResult({ from, to, date: dateInput.value, time: timeInput.value, buffer, ...coordinates, ...(toAddress ? { toAddress } : {}) });
 }
 
 function renderQuickPlaces(favorites) {
@@ -134,6 +138,12 @@ function renderRecent(history) {
       toInput.value = item.to;
       timeInput.value = time;
       dateInput.value = nextDateForTime(time);
+      // 기록의 좌표를 선택된 장소로 넣어 submit이 결과 화면에 좌표를 넘기게 한다. 좌표가 없는 쪽은 선택을 비운다.
+      const coordinates = historyCoordinates(item);
+      ["from", "to"].forEach((prefix, index) => {
+        const lat = coordinates[`${prefix}Lat`], lng = coordinates[`${prefix}Lng`];
+        autocompletes[index].setPlace(lat === undefined ? null : { name: item[prefix], lat, lng });
+      });
       submit();
     });
     grid.append(button);
@@ -176,7 +186,9 @@ const restoredQuery = new URLSearchParams(location.search);
 ["from", "to"].forEach((prefix, index) => {
   const lat = restoredQuery.get(`${prefix}Lat`), lng = restoredQuery.get(`${prefix}Lng`);
   if (lat !== null && lng !== null && lat.trim() && lng.trim() && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
-    autocompletes[index].setPlace({ name: form.elements[prefix].value, lat: Number(lat), lng: Number(lng) });
+    // "조건 수정"으로 돌아왔을 때 목적지 주소도 되살려 다시 제출할 때 잃지 않게 한다.
+    const address = prefix === "to" ? placeAddress(restoredQuery.get("toAddress")) : null;
+    autocompletes[index].setPlace({ name: form.elements[prefix].value, lat: Number(lat), lng: Number(lng), ...(address ? { address } : {}) });
   }
 });
 if (USE_MOCK) {
@@ -202,9 +214,17 @@ form.addEventListener("submit", (event) => {
   submit();
 });
 // 뒤로 가기로 돌아왔을 때(bfcache) 로딩 표시가 남지 않게 한다.
-window.addEventListener("pageshow", () => {
+// 복원된 화면은 떠날 때의 계정 상태 그대로라 세션을 다시 확인한다. 계정이 바뀌었거나 로그아웃됐으면
+// recheckAuth가 인증 변경 이벤트를 내고, onAuthChange(loadSavedData)가 현재 계정의 데이터로 다시 그린다.
+// 늦게 온 이전 계정 응답은 loadSavedData의 세대 번호로 버려진다.
+window.addEventListener("pageshow", (event) => {
   clearTimeout(navigationTimer);
   setLoading(false);
+  if (event.persisted) recheckAuth();
+});
+// 다른 탭에서 계정을 바꾸고 이 탭으로 돌아온 경우
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") recheckAuth();
 });
 window.addEventListener("pagehide", () => {
   clearTimeout(navigationTimer);

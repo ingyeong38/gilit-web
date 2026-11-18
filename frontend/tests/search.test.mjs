@@ -109,15 +109,18 @@ console.log('PASS: 디바운스·이전 응답 차단·키보드·마우스 선�
 const elements = Object.fromEntries(['search-form', 'search-submit', 'swap-button', 'quick-places', 'recent-grid', 'recent-login-hint', 'place-search-hint'].map((id) => [id, new Element()]));
 const form = elements['search-form']; form.elements = Object.fromEntries(['from', 'to', 'date', 'time'].map((name) => [name, new Element()]));
 const buttons = ['0', '5', '10', '15'].map((buffer) => { const el = new Element(); el.dataset.buffer = buffer; return el; });
-const windowMock = new Element(), toasts = [], navigations = [];
+const windowMock = new Element(), docEvents = new Element(), toasts = [], navigations = [];
+let rechecks = 0;
+const stubs = [];
 const fixedNow = new Date('2026-11-06T00:00:00Z');
 class FixedDate extends Date { constructor(...args) { super(...(args.length ? args : [fixedNow])); } }
 const pageContext = vm.createContext({ ...utils, Date: FixedDate, USE_MOCK: true, URLSearchParams,
-  document: { getElementById: (id) => elements[id], querySelectorAll: () => buttons, createElement: () => new Element() },
+  document: Object.assign(docEvents, { getElementById: (id) => elements[id], querySelectorAll: () => buttons, createElement: () => new Element() }),
   window: windowMock, location: { search: '?' + new URLSearchParams(valid), assign: (url) => navigations.push(url) },
   icon: () => '', renderIcons() {}, showToast: (message) => toasts.push(message),
-  setupAutocomplete: () => ({ close() {}, getPlace() { return null; }, setPlace() {} }), getFavorites: async () => [], getHistory: async () => [],
-  getUser: () => null, initializeAuth: async () => {}, isRedirecting: () => false, onAuthChange() {},
+  setupAutocomplete: () => { let place = null; const stub = { close() {}, getPlace() { return place; }, setPlace(value) { place = value; } }; stubs.push(stub); return stub; },
+  getFavorites: async () => [], getHistory: async () => [],
+  getUser: () => null, initializeAuth: async () => {}, isRedirecting: () => false, onAuthChange() {}, recheckAuth: () => { rechecks++; },
   setTimeout: setTimer, clearTimeout: (id) => timers.delete(id),
   validateSearchConditions: (data) => utils.validateSearchConditions(data, fixedNow),
 });
@@ -137,5 +140,53 @@ assert.equal(new URL(navigations[0], 'http://localhost').searchParams.get('from'
 windowMock.fire('pageshow'); assert.equal(elements['search-submit'].disabled, false);
 form.fire('submit'); await runTimers(); assert.equal(navigations.length, 2);
 windowMock.fire('pagehide');
+// 계정 재확인: bfcache 복원(persisted)과 탭 복귀(visible)일 때만 /api/auth/me를 다시 확인한다
+assert.equal(rechecks, 0); // 위의 일반 pageshow(persisted 없음)에서는 하지 않는다
+windowMock.fire('pageshow', { persisted: true }); assert.equal(rechecks, 1);
+docEvents.visibilityState = 'hidden'; docEvents.fire('visibilitychange'); assert.equal(rechecks, 1);
+docEvents.visibilityState = 'visible'; docEvents.fire('visibilitychange'); assert.equal(rechecks, 2);
+// 최근 검색 카드: 기록의 좌표를 결과 화면 쿼리로 넘기고, 좌표가 null인 쪽은 넘기지 않는다
+pageContext.renderRecent([{ from: '김해시청', to: '동의대학교', arriveTime: '2026-11-02T09:00:00+09:00', fromLat: null, fromLng: null, toLat: 35.1441, toLng: 129.0336 }]);
+elements['recent-grid'].children.at(-1).fire('click'); await runTimers();
+const recentUrl = new URL(navigations.at(-1), 'http://localhost').searchParams;
+assert.equal(recentUrl.get('to'), '동의대학교');
+assert.deepEqual([recentUrl.get('toLat'), recentUrl.get('toLng')], ['35.1441', '129.0336']);
+assert.equal(recentUrl.has('fromLat'), false);
+console.log('PASS: bfcache 복원·탭 복귀 시 로그인 재확인, 최근 검색 카드의 기록 좌표 전달');
+
+// 자동완성으로 고른 목적지 주소를 toAddress로 넘긴다 (형식이 맞을 때만). 최근 검색 카드는 주소가 없어 넘기지 않는다
+assert.equal(recentUrl.has('toAddress'), false);
+const submitWith = async (toPlace) => {
+  form.elements.from.value = '김해시청'; form.elements.to.value = '동의대학교';
+  form.elements.date.value = valid.date; form.elements.time.value = valid.time;
+  windowMock.fire('pageshow'); // 이전 이동의 로딩 상태를 푼다 (뒤로 가기와 같다)
+  stubs[0].setPlace(null); stubs[1].setPlace(toPlace);
+  form.fire('submit'); await runTimers();
+  return new URL(navigations.at(-1), 'http://localhost').searchParams;
+};
+let sent = await submitWith({ name: '동의대학교', lat: 35.1441, lng: 129.0336, address: '  부산 부산진구 엄광로 176 ' });
+assert.equal(sent.get('toAddress'), '부산 부산진구 엄광로 176');
+assert.equal(sent.get('toLat'), '35.1441');
+for (const address of ['x'.repeat(256), '   ', 12345, null, undefined, '부산\n동구']) {
+  sent = await submitWith({ name: '동의대학교', lat: 35.1441, lng: 129.0336, address });
+  assert.equal(sent.has('toAddress'), false, `잘못된 주소는 넘기지 않는다: ${String(address).slice(0, 10)}`);
+  assert.equal(sent.get('toLat'), '35.1441', '좌표는 그대로 넘긴다');
+}
+sent = await submitWith({ name: '동의대학교', lat: 35.1441, lng: 129.0336, address: 'x'.repeat(255) });
+assert.equal(sent.get('toAddress').length, 255);
+sent = await submitWith(null); // 자동완성으로 고르지 않음
+assert.equal(sent.has('toAddress'), false);
+
+// "조건 수정"으로 돌아오면 쿼리의 toAddress를 목적지 선택값에 되살린다 (잘못된 값은 버린다)
+for (const [address, expected] of [['부산 부산진구 엄광로 176', '부산 부산진구 엄광로 176'], ['x'.repeat(256), undefined]]) {
+  const restoreStubs = [];
+  const query = new URLSearchParams({ ...valid, toLat: '35.1441', toLng: '129.0336', toAddress: address });
+  const restoreContext = vm.createContext({ ...pageContext, location: { search: '?' + query, assign() {} },
+    setupAutocomplete: () => { let place = null; const stub = { close() {}, getPlace() { return place; }, setPlace(value) { place = value; } }; restoreStubs.push(stub); return stub; } });
+  vm.runInContext(plain(await read('../js/pages/search.js')), restoreContext);
+  assert.equal(restoreStubs[1].getPlace().address, expected);
+  assert.equal(restoreStubs[1].getPlace().lat, 35.1441);
+}
+console.log('PASS: 자동완성 목적지 주소 toAddress 전달(공백 정리·255자 한도·비문자열·제어 문자 거부), 조건 수정 복원');
 for (const path of ['../js/components/placeAutocomplete.js', '../js/pages/search.js', '../js/pages/result.js', '../js/api.js', '../js/utils.js']) new vm.Script(plain(await read(path)));
 console.log('PASS: 조건 복원·교환·입력별 포커스·중복 제출 방지·뒤로 가기 복구·변경 JS 문법');

@@ -77,3 +77,22 @@
   #site-header .logo-sub { display: none; }
   #site-header .profile-button > span:nth-child(2) { max-width: 90px; }
 }
+
+/* 장소 자동완성 (placeAutocomplete.js). 길찾기 화면과 즐겨찾기 장소 추가 모달이 함께 쓴다. */
+.autocomplete { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 15; border: 1px solid var(--line); border-radius: 10px; background: var(--white); box-shadow: var(--shadow-hover); padding: 7px; max-height: min(320px, 45dvh); overflow-y: auto; overscroll-behavior: contain; }
+.autocomplete-label { color: var(--muted-2); font-size: 10px; padding: 6px 9px; }
+.autocomplete [role="option"], .autocomplete button { border: 0; background: none; width: 100%; padding: 8px 9px; display: flex; gap: 10px; text-align: left; border-radius: 7px; cursor: pointer; }
+.autocomplete [role="option"]:hover, .autocomplete [role="option"][aria-selected="true"], .autocomplete button:hover { background: var(--blue-pale); }
+.autocomplete [role="option"] > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 7px; background: var(--blue-soft); color: var(--blue); }
+.autocomplete b { display: block; font-size: 11px; }.autocomplete small { color: var(--muted); font-size: 9px; }
+.autocomplete[hidden] { display: none; }
+.autocomplete [role="option"] > div { min-width: 0; overflow-wrap: anywhere; }
+.autocomplete [role="option"] > span { flex: none; }
+/* 모달은 내부 스크롤(overflow-y: auto)이라 목록을 문서 흐름에 두어 잘리지 않게 한다. */
+.place-modal .autocomplete { position: relative; top: auto; margin-top: 6px; max-height: min(240px, 40dvh); }
+.place-selected { margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5; display: flex; align-items: flex-start; gap: 4px; overflow-wrap: anywhere; }
+.place-selected.selected { color: var(--blue); }
+.place-selected svg { flex: none; margin-top: 1px; }
+/* .modal small(약관 안내용)의 블록 여백을 목록 안 주소에는 쓰지 않는다. */
+.place-modal .autocomplete small { display: block; margin-top: 2px; line-height: 1.4; }
+.place-modal .modal-field + .place-selected + .modal-field { margin-top: 12px; }
