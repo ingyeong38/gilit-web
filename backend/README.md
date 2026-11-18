@@ -51,10 +51,10 @@ python -m venv venv
 venv/Scripts/python -m pip install -r requirements-dev.txt
 
 # 테스트 (실제 API는 부르지 않는다)
-venv/Scripts/python -m pytest
+venv\Scripts\python -m pytest
 
 # 웹 서버. http://127.0.0.1:8000/docs 에서 요청을 시험한다
-venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
+venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 
 # 실제 카카오 데이터로 웹 서버 실행 (.env에 ROUTE_PROVIDER=kakao를 두어도 된다)
 ROUTE_PROVIDER=kakao venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
@@ -62,7 +62,7 @@ ROUTE_PROVIDER=kakao venv/Scripts/python -m uvicorn app.main:app --reload --port
 # 실제 카카오 API 테스트 (KAKAO_REST_API_KEY 필요, 한 번에 약 10회 호출)
 venv/Scripts/python -m pytest -m kakao_live
 
-# 실행 예제: 김해시청 -> 동의대학교, 09:00 도착, 여유 10분 (Mock 데이터)
+# 실행 예제: 김해시청 -> 동의대학교, 09:00 도착, 여유 10분 (Mock 데이터) 
 venv/Scripts/python -m app.departure.cli --from 35.2285,128.8894 --to 35.1441,129.0336 --arrive "2026-11-06 09:00" --buffer 10
 
 # 같은 예제를 실제 카카오 API로

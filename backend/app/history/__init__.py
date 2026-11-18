@@ -1,4 +1,4 @@
-"""검색 기록 (F9). search_history에 쌓기만 하고, 조회할 때 같은 검색을 묶고, 삭제는 user_id를 NULL로 분리한다.
+"""검색 기록 (F9). 로그인 사용자의 검색만 search_history에 쌓고, 조회할 때 같은 검색을 묶고, 삭제는 행을 지운다.
 
 - models.py: HistoryDraft·HistoryEntry, 묶기 규칙 (search_key, group_latest)
 - stores.py: HistoryStore 프로토콜과 메모리 구현 / mysql_stores.py: MySQL 구현

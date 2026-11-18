@@ -68,11 +68,11 @@ CREATE TABLE IF NOT EXISTS favorite_places (
   CONSTRAINT chk_favorite_label CHECK (label IN ('집', '학교', '회사', '기타'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
 
--- 길찾기 검색 기록. 비로그인 검색도 user_id NULL로 남겨 이용 통계에 쓴다.
--- 회원이 탈퇴하면 기록은 남기고 user_id만 NULL로 바꾼다.
+-- 길찾기 검색 기록. 로그인 사용자의 검색만 저장한다 (비로그인 검색은 저장하지 않는다, 마이그레이션 004).
+-- 회원이 탈퇴하면 그 사용자의 기록도 지운다.
 CREATE TABLE IF NOT EXISTS search_history (
   id                    BIGINT        NOT NULL AUTO_INCREMENT,
-  user_id               BIGINT        NULL,
+  user_id               BIGINT        NOT NULL,
   origin_name           VARCHAR(100)  NULL,
   origin_lat            DECIMAL(10,7) NULL,
   origin_lng            DECIMAL(10,7) NULL,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS search_history (
   KEY idx_history_user_created (user_id, created_at),   -- 내 검색 기록 (최신순)
   KEY idx_history_dest (dest_name),                     -- 인기 목적지
   KEY idx_history_origin (origin_name),                 -- 인기 출발지
-  CONSTRAINT fk_history_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT fk_history_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
   CONSTRAINT chk_history_travel_mode CHECK (travel_mode IN ('car', 'transit')),
   CONSTRAINT chk_history_buffer CHECK (buffer_min >= 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;

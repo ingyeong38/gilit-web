@@ -183,17 +183,20 @@ def get_route_graph(request: Request, response: Response, query: Annotated[Graph
 
 
 def record_search(request: Request, query: RouteQuery, origin, destination, cards: list[dict]) -> None:
-    """응답을 보낸 뒤(백그라운드) 검색 기록을 저장한다. 세션 확인·저장이 실패해도 로그만 남긴다.
+    """응답을 보낸 뒤(백그라운드) 로그인 사용자의 검색 기록을 저장한다. 세션 확인·저장이 실패해도 로그만 남긴다.
 
     세션 확인(optional_user)도 여기서 한다. 경로 응답이 회원 DB를 기다리거나 DB 장애로 실패하지 않게 하려는 것이다.
+    비로그인 검색은 저장하지 않는다 (기록은 항상 그 사용자의 user_id로만 저장·조회한다).
     """
     history = request.app.state.history
     if history is None:
         return
     try:
         current = optional_user(request, request.app.state.auth)
+        if current is None:
+            return
         draft = draft_from_route_search(query.from_, query.to, query.arrive, query.buffer, origin, destination, cards)
-        history.record_search(current.id if current else None, draft)
+        history.record_search(current.id, draft)
     except Exception:
         # 장소 이름·좌표는 로그에 남기지 않는다 (개인 검색 내용).
         logger.exception("검색 기록 저장 실패 (경로 응답에는 영향 없음)")

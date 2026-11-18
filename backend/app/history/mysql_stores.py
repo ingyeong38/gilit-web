@@ -1,10 +1,10 @@
-"""HistoryStore의 MySQL 구현 (AUTH_STORE=mysql). 테이블 search_history (스키마 변경 없음).
+"""HistoryStore의 MySQL 구현 (AUTH_STORE=mysql). 테이블 search_history (user_id NOT NULL, 마이그레이션 004).
 
 - 묶기는 SQL이 아니라 메모리 저장소와 같은 파이썬 함수(models.group_latest, entry_key)로 한다.
   SQL로 묶으면 이름 비교에 콜레이션(대소문자·악센트 무시)이 끼어 두 저장소의 결과가 달라진다.
-  사용자에게 연결된 행은 add에서 MAX_ATTACHED_ROWS(200)개로 유지하므로 한 번에 읽어도 가볍다
+  사용자의 행은 add에서 MAX_ATTACHED_ROWS(200)개로 유지하므로 한 번에 읽어도 가볍다
   (인덱스 idx_history_user_created).
-- 분리(삭제)는 UPDATE ... SET user_id = NULL이다. 모든 쿼리에 user_id 조건을 넣는다.
+- 삭제는 DELETE다. 모든 쿼리에 user_id 조건을 넣는다.
 """
 
 from __future__ import annotations  # 클래스의 list 메서드와 list[...] 타입 표기가 섞이지 않게
@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.db import ConnectionPool, from_db, to_db
 from app.history.models import MAX_ATTACHED_ROWS, HistoryDraft, HistoryEntry, entry_key, group_latest
+from app.history.stores import require_user_id
 
 COLUMNS = (
     "id, user_id, origin_name, origin_lat, origin_lng, dest_name, dest_lat, dest_lng, arrive_at, buffer_min, "
@@ -45,13 +46,11 @@ def _entry(row: dict) -> HistoryEntry:
     )
 
 
-def _detach_ids(cur, user_id: int, ids: list[int]) -> int:
+def _delete_ids(cur, user_id: int, ids: list[int]) -> int:
     if not ids:
         return 0
     placeholders = ", ".join(["%s"] * len(ids))
-    return cur.execute(
-        f"UPDATE search_history SET user_id = NULL WHERE user_id = %s AND id IN ({placeholders})", (user_id, *ids)
-    )
+    return cur.execute(f"DELETE FROM search_history WHERE user_id = %s AND id IN ({placeholders})", (user_id, *ids))
 
 
 class MySQLHistoryStore:
@@ -59,7 +58,8 @@ class MySQLHistoryStore:
         self.pool = pool
         self.max_attached = max_attached
 
-    def add(self, user_id: int | None, draft: HistoryDraft, now: datetime) -> HistoryEntry:
+    def add(self, user_id: int, draft: HistoryDraft, now: datetime) -> HistoryEntry:
+        require_user_id(user_id)
         created_at = to_db(now)
         with self.pool.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -83,13 +83,12 @@ class MySQLHistoryStore:
                 ),
             )
             entry_id = cur.lastrowid
-            if user_id is not None:
-                # 상한을 넘은 오래된 행을 분리한다 (같은 트랜잭션).
-                cur.execute(
-                    f"SELECT id FROM search_history WHERE user_id = %s {NEWEST_FIRST} LIMIT %s, %s",
-                    (user_id, self.max_attached, MAX_ROWS),
-                )
-                _detach_ids(cur, user_id, [int(row["id"]) for row in cur.fetchall()])
+            # 상한을 넘은 오래된 행을 지운다 (같은 트랜잭션).
+            cur.execute(
+                f"SELECT id FROM search_history WHERE user_id = %s {NEWEST_FIRST} LIMIT %s, %s",
+                (user_id, self.max_attached, MAX_ROWS),
+            )
+            _delete_ids(cur, user_id, [int(row["id"]) for row in cur.fetchall()])
             cur.execute(f"SELECT {COLUMNS} FROM search_history WHERE id = %s", (entry_id,))
             return _entry(cur.fetchone())
 
@@ -103,7 +102,7 @@ class MySQLHistoryStore:
 
     def delete_one(self, user_id: int, entry_id: int) -> bool:
         with self.pool.connection() as conn, conn.cursor() as cur:
-            # 그 사용자의 연결된 행을 잠그고 읽어, 대상과 같은 묶음을 파이썬 규칙으로 고른다.
+            # 그 사용자의 행을 잠그고 읽어, 대상과 같은 묶음을 파이썬 규칙으로 고른다.
             cur.execute(
                 f"SELECT {COLUMNS} FROM search_history WHERE user_id = %s {NEWEST_FIRST} FOR UPDATE", (user_id,)
             )
@@ -112,9 +111,9 @@ class MySQLHistoryStore:
             if target is None:
                 return False
             key = entry_key(target)
-            _detach_ids(cur, user_id, [row.id for row in rows if entry_key(row) == key])
+            _delete_ids(cur, user_id, [row.id for row in rows if entry_key(row) == key])
             return True
 
     def delete_all(self, user_id: int) -> int:
         with self.pool.connection() as conn, conn.cursor() as cur:
-            return cur.execute("UPDATE search_history SET user_id = NULL WHERE user_id = %s", (user_id,))
+            return cur.execute("DELETE FROM search_history WHERE user_id = %s", (user_id,))

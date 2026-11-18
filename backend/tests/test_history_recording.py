@@ -161,7 +161,7 @@ def test_five_minute_rule_is_per_user(env):
 
 
 def test_search_after_deleting_history_is_stored_again(env):
-    """지운 기록은 5분 규칙의 대상이 아니다 (분리됐으므로)."""
+    """지운 기록은 5분 규칙의 대상이 아니다 (행이 없으므로)."""
     search(env.alice)
     env.alice.delete("/api/history")
 
@@ -188,40 +188,49 @@ def test_cache_hit_is_recorded_with_resolved_coordinates_and_same_rule(env):
     assert (card["fromLat"], card["toLng"]) == (35.2, 129.01)  # 캐시 적중이어도 처음 확정한 좌표를 쓴다
 
 
-def test_cache_hit_of_anonymous_search_is_recorded(env):
+def test_cache_hit_of_anonymous_search_is_not_recorded(env):
     anonymous = env.anonymous()
     search(anonymous)
     response = search(anonymous)
 
     assert response.headers["X-Gilit-Route-Cache"] == "HIT"
-    assert [owner for _, owner in env.rows()] == [None, None]
+    assert env.rows() == []
 
 
 # --- 비로그인 ---
 
 
-def test_anonymous_search_is_stored_without_user_and_never_listed(env):
+def test_anonymous_search_returns_routes_and_stores_nothing(env):
     response = search(env.anonymous())
 
-    assert response.status_code == 200
-    assert env.rows() and all(owner is None for _, owner in env.rows())
+    assert response.status_code == 200 and response.json()  # 경로는 그대로 돌려준다
+    assert env.rows() == []
     assert history(env.alice) == [] and history(env.bob) == []
 
 
-def test_anonymous_repeats_are_all_stored(env):
-    """비로그인은 같은 사람인지 알 수 없으므로 5분 규칙을 적용하지 않는다."""
+def test_anonymous_repeats_store_nothing(env):
     for _ in range(3):
         search(env.anonymous())
 
-    assert [owner for _, owner in env.rows()] == [None, None, None]
+    assert env.rows() == []
 
 
-def test_expired_session_counts_as_anonymous(env):
+def test_logged_out_session_counts_as_anonymous(env):
     env.alice.post("/api/auth/logout")
 
     search(env.alice)
 
-    assert [owner for _, owner in env.rows()] == [None]
+    assert env.rows() == []
+
+
+def test_anonymous_search_does_not_call_store(env, monkeypatch):
+    """비로그인 요청은 저장소의 add(INSERT)까지 가지 않는다."""
+    calls = []
+    monkeypatch.setattr(env.backend.history, "add", lambda *args: calls.append(args))
+
+    search(env.anonymous())
+
+    assert calls == []
 
 
 # --- 성공 응답만 저장 ---

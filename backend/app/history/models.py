@@ -1,9 +1,9 @@
 """검색 기록 값과 "같은 검색" 묶기 규칙. 메모리·MySQL 저장소가 같은 함수로 묶어 결과가 같다.
 
-search_history는 통계(검색 수, 인기 출발지·목적지)를 겸하는 기록이라 행을 고치거나 지우지 않는다.
+search_history는 로그인 사용자의 기록이다. user_id는 항상 있다 (NOT NULL, 마이그레이션 004). 비로그인 검색은 저장하지 않는다.
 - 같은 검색 반복: 조회할 때 묶는다. 기준은 (출발지 이름, 목적지 이름, 도착 희망 시각의 시:분, KST)이다.
   프론트의 "다시 검색"이 날짜를 버리고 시:분만 쓰기 때문이다. 묶음마다 가장 최근 행 하나를 보여 준다.
-- 삭제: user_id를 NULL로 바꿔 사용자에게서 분리한다. 통계 행은 그대로 남는다 (탈퇴의 ON DELETE SET NULL과 같다).
+- 삭제: 행을 지운다. 회원 탈퇴도 FK ON DELETE CASCADE로 그 사용자의 행을 지운다.
 """
 
 from collections.abc import Iterable
@@ -12,7 +12,7 @@ from datetime import datetime
 
 from app.departure import KST
 
-MAX_ATTACHED_ROWS = 200  # 사용자에게 연결된 행 상한. 넘으면 오래된 것부터 분리한다 (조회 비용을 일정하게)
+MAX_ATTACHED_ROWS = 200  # 사용자당 행 상한. 넘으면 오래된 것부터 지운다 (조회 비용을 일정하게)
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 50
 
@@ -37,7 +37,7 @@ class HistoryDraft:
 @dataclass(frozen=True)
 class HistoryEntry:
     id: int
-    user_id: int | None  # None: 비로그인 검색이거나 사용자가 지운(분리한) 기록
+    user_id: int  # 로그인 사용자 (search_history.user_id NOT NULL)
     origin_name: str | None
     dest_name: str | None
     arrive_at: datetime
@@ -52,7 +52,7 @@ class HistoryEntry:
     created_at: datetime
 
     @classmethod
-    def from_draft(cls, entry_id: int, user_id: int | None, draft: HistoryDraft, created_at: datetime) -> "HistoryEntry":
+    def from_draft(cls, entry_id: int, user_id: int, draft: HistoryDraft, created_at: datetime) -> "HistoryEntry":
         return cls(
             id=entry_id,
             user_id=user_id,

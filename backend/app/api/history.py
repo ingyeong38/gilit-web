@@ -1,7 +1,7 @@
 """검색 기록 API (docs/api-spec.md "검색 기록"). 모두 로그인 필요 (require_user, 없으면 401).
 
 저장은 이 API가 아니라 경로 검색이 성공했을 때 서버가 한다 (4단계에서 GET /api/routes에 연결). POST /api/history는 없다.
-삭제는 행을 지우지 않고 사용자에게서 분리한다 (통계 보존). id가 숫자가 아니거나, 없거나, 남의 것·이미 지운 것이면 404다.
+삭제는 행을 지운다. id가 숫자가 아니거나, 없거나, 남의 것·이미 지운 것이면 404다.
 """
 
 from typing import Annotated
@@ -73,7 +73,7 @@ def delete_history(
     current: Annotated[CurrentUser, Depends(require_user)],
     service: Annotated[HistoryService, Depends(get_history)],
 ) -> Response:
-    """`?id=`가 있으면 그 카드(같은 검색 묶음)를, 없으면 내 기록 전체를 지운다. 통계용 행은 남고 나에게서만 분리된다."""
+    """`?id=`가 있으면 그 카드(같은 검색 묶음)를, 없으면 내 기록 전체를 지운다 (행을 삭제한다)."""
     if "id" in request.query_params:
         service.delete_one(current.id, parse_history_id(request.query_params.get("id")))
     else:

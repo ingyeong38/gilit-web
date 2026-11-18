@@ -223,10 +223,10 @@ def test_invalid_limit_is_400(env, limit):
     assert response.json() == {"message": "개수는 1~50 사이의 정수여야 합니다."}
 
 
-# --- 삭제 (분리) ---
+# --- 삭제 ---
 
 
-def test_delete_one_removes_card_but_keeps_rows_detached(env):
+def test_delete_one_removes_card_and_its_rows(env):
     a1 = env.add(env.alice_id, arrive=arrive(5, 9))
     other = env.add(env.alice_id, dest="부산역")
     a2 = env.add(env.alice_id, arrive=arrive(6, 9))  # a1과 같은 검색 → 카드 하나 (대표는 a2)
@@ -237,7 +237,7 @@ def test_delete_one_removes_card_but_keeps_rows_detached(env):
     assert response.content == b""
     assert routes(env.alice) == [("김해시청", "부산역")]  # 묶음 전체가 사라지고 다른 카드는 남는다
     rows = dict(env.backend.history_rows())
-    assert rows[a1.id] is None and rows[a2.id] is None  # 행은 남고 사용자에게서만 분리됐다 (통계 보존)
+    assert a1.id not in rows and a2.id not in rows  # 묶음의 행을 지운다
     assert rows[other.id] == env.alice_id
 
 
@@ -259,7 +259,7 @@ def test_deleted_card_id_is_404_afterwards(env):
     assert again.json() == {"message": "찾을 수 없습니다."}
 
 
-def test_delete_all_detaches_everything_and_is_idempotent(env):
+def test_delete_all_deletes_everything_and_is_idempotent(env):
     mine = [env.add(env.alice_id, dest=f"목적지{i}") for i in range(3)]
     bobs = env.add(env.bob_id)
 
@@ -269,7 +269,7 @@ def test_delete_all_detaches_everything_and_is_idempotent(env):
     assert (first.status_code, second.status_code) == (204, 204)
     assert cards(env.alice) == []
     rows = dict(env.backend.history_rows())
-    assert all(rows[entry.id] is None for entry in mine)  # 분리됐지만 남아 있다
+    assert all(entry.id not in rows for entry in mine)  # 지웠다
     assert rows[bobs.id] == env.bob_id  # 다른 사용자 것은 그대로
     assert len(cards(env.bob)) == 1
 
@@ -335,29 +335,26 @@ def test_anonymous_is_401(env, method, params):
     assert dict(env.backend.history_rows())[entry.id] == env.alice_id
 
 
-def test_anonymous_searches_are_stored_for_stats_but_never_listed(env):
-    anonymous_row = env.add(None, dest="부산역")
-    env.add(env.alice_id)
+@pytest.mark.parametrize("user_id", [None, 0, -1, True, "1"])
+def test_store_add_requires_logged_in_user_id(env, user_id):
+    """비로그인 기록은 없다. 저장소가 user_id 없는 행을 만들지 않는다 (MySQL은 NOT NULL로도 막는다)."""
+    with pytest.raises(ValueError):
+        env.add(user_id)
 
-    assert routes(env.alice) == [("김해시청", "동의대학교")]
-    assert cards(env.bob) == []
-    env.alice.delete("/api/history")
-    assert dict(env.backend.history_rows())[anonymous_row.id] is None  # 처음부터 연결 없음, 그대로
+    assert env.backend.history_rows() == []
 
 
 # --- 보관 상한 ---
 
 
-def test_attached_rows_are_capped_and_oldest_detached(env):
+def test_rows_are_capped_and_oldest_deleted(env):
     total = MAX_ATTACHED_ROWS + 5
-    for i in range(total):
-        env.add(env.alice_id, arrive=arrive(5, 9))  # 같은 검색을 계속 반복
+    added = [env.add(env.alice_id, arrive=arrive(5, 9)).id for _ in range(total)]  # 같은 검색을 계속 반복
 
     rows = env.backend.history_rows()
     attached = [row_id for row_id, user_id in rows if user_id == env.alice_id]
-    assert len(rows) == total  # 지우지 않는다 (통계)
-    assert len(attached) == MAX_ATTACHED_ROWS
-    assert attached == [row_id for row_id, _ in rows][5:]  # 가장 오래된 5개가 분리됐다
+    assert len(rows) == MAX_ATTACHED_ROWS  # 넘은 행은 지운다
+    assert attached == added[5:]  # 가장 오래된 5개를 지웠다
     assert len(cards(env.alice)) == 1
 
 
@@ -402,7 +399,7 @@ def test_memory_store_is_default_and_mysql_shares_pool():
     assert app.state.history.store.pool is app.state.db_pool is app.state.auth.users.pool
 
 
-# --- MySQL 전용: 탈퇴 시 FK 동작 ---
+# --- MySQL 전용: 마이그레이션 004 (NOT NULL, 탈퇴 시 CASCADE) ---
 
 
 def mysql_only(func):
@@ -421,8 +418,8 @@ def mysql_env():
 
 
 @mysql_only
-def test_user_deletion_keeps_history_rows_with_null_user(mysql_env):
-    """탈퇴(users 행 삭제) 시 기록은 남고 user_id만 NULL이 된다 (fk_history_user ON DELETE SET NULL)."""
+def test_user_deletion_deletes_that_users_history(mysql_env):
+    """탈퇴(users 행 삭제) 시 그 사용자의 기록도 지워진다 (fk_history_user ON DELETE CASCADE)."""
     env = mysql_env
     mine = [env.add(env.alice_id, dest=f"목적지{i}") for i in range(3)]
     bobs = env.add(env.bob_id)
@@ -430,27 +427,31 @@ def test_user_deletion_keeps_history_rows_with_null_user(mysql_env):
     env.backend.execute("DELETE FROM users WHERE id = %s", (env.alice_id,))
 
     rows = dict(env.backend.history_rows())
-    assert all(rows[entry.id] is None for entry in mine)
+    assert all(entry.id not in rows for entry in mine)
     assert rows[bobs.id] == env.bob_id
-    (row,) = env.backend.execute(
-        "SELECT COUNT(*) AS n FROM search_history WHERE dest_name LIKE %s", ("목적지%",)
-    )
-    assert row["n"] == 3  # 인기 목적지 통계에 계속 쓰인다
 
 
 @mysql_only
-def test_detached_rows_keep_all_columns(mysql_env):
-    """분리는 user_id만 바꾼다. 통계에 쓰는 값은 그대로다."""
+def test_migration_004_structure(mysql_env):
+    """user_id NOT NULL, fk_history_user ON DELETE CASCADE. 적용 안 된 DB면 실패해 004를 적용하라고 알린다."""
     env = mysql_env
-    entry = env.add(env.alice_id, origin_lat=35.2285, origin_lng=128.8894, buffer_min=10, ai_summary="요약")
-
-    env.alice.delete("/api/history", params={"id": str(entry.id)})
-
-    (row,) = env.backend.execute(
-        "SELECT user_id, origin_name, dest_name, CAST(arrive_at AS CHAR) AS arrive, buffer_min, origin_lat, ai_summary, "
-        "travel_mode FROM search_history WHERE id = %s",
-        (entry.id,),
+    (column,) = env.backend.execute(
+        "SELECT IS_NULLABLE AS nullable FROM information_schema.COLUMNS "
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'search_history' AND COLUMN_NAME = 'user_id'"
     )
-    assert row["user_id"] is None
-    assert (row["origin_name"], row["dest_name"], row["arrive"]) == ("김해시청", "동의대학교", "2026-11-05 09:00:00")
-    assert (row["buffer_min"], float(row["origin_lat"]), row["ai_summary"], row["travel_mode"]) == (10, 35.2285, "요약", "car")
+    (fk,) = env.backend.execute(
+        "SELECT DELETE_RULE AS rule FROM information_schema.REFERENTIAL_CONSTRAINTS "
+        "WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'search_history' AND CONSTRAINT_NAME = 'fk_history_user'"
+    )
+    assert (column["nullable"], fk["rule"]) == ("NO", "CASCADE"), "db/migrations/004_search_history_user_not_null.sql을 적용하세요"
+
+
+@mysql_only
+def test_mysql_rejects_null_user_row(mysql_env):
+    """저장소를 거치지 않은 INSERT도 DB가 막는다."""
+    import pymysql
+
+    with pytest.raises(pymysql.err.IntegrityError):
+        mysql_env.backend.execute(
+            "INSERT INTO search_history (user_id, arrive_at, buffer_min, travel_mode) VALUES (NULL, NOW(), 0, 'car')"
+        )
