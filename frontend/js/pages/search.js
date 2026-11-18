@@ -14,6 +14,7 @@ import {
   isValidTime,
   nextDateForTime,
   placeAddress,
+  queryCoordinates,
   timeOf,
   validateSearchConditions,
 } from "/js/utils.js";
@@ -116,6 +117,9 @@ function renderQuickPlaces(favorites) {
     button.addEventListener("click", () => {
       autocompletes.forEach((autocomplete) => autocomplete.close());
       fromInput.value = place.name;
+      // 즐겨찾기 좌표를 출발지 선택값으로 넣어 경로 조회가 이름 검색(422) 대신 좌표를 쓰게 한다. 없으면 이전 선택을 비운다.
+      const { fromLat: lat, fromLng: lng } = historyCoordinates({ fromLat: place.lat, fromLng: place.lng });
+      autocompletes[0].setPlace(lat === undefined ? null : { name: place.name, lat, lng });
     });
     container.append(button);
   });
@@ -183,12 +187,14 @@ fillForm();
 setLoading(false);
 autocompletes.push(setupAutocomplete(fromInput), setupAutocomplete(toInput));
 const restoredQuery = new URLSearchParams(location.search);
+// 쿼리 좌표(조건 수정, 즐겨찾기 "여기서 출발")를 선택된 장소로 복원한다. 범위 밖·숫자 아님은 무시한다.
+// 입력칸을 고치면 자동완성이 선택을 풀고(getPlace는 이름이 같을 때만 돌려준다) 이전 좌표로 조회하지 않는다.
 ["from", "to"].forEach((prefix, index) => {
-  const lat = restoredQuery.get(`${prefix}Lat`), lng = restoredQuery.get(`${prefix}Lng`);
-  if (lat !== null && lng !== null && lat.trim() && lng.trim() && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+  const coordinate = queryCoordinates(restoredQuery, prefix);
+  if (coordinate) {
     // "조건 수정"으로 돌아왔을 때 목적지 주소도 되살려 다시 제출할 때 잃지 않게 한다.
     const address = prefix === "to" ? placeAddress(restoredQuery.get("toAddress")) : null;
-    autocompletes[index].setPlace({ name: form.elements[prefix].value, lat: Number(lat), lng: Number(lng), ...(address ? { address } : {}) });
+    autocompletes[index].setPlace({ name: form.elements[prefix].value, ...coordinate, ...(address ? { address } : {}) });
   }
 });
 if (USE_MOCK) {

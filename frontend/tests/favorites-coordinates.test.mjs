@@ -300,6 +300,26 @@ vm.runInContext(plain(await read('../js/utils.js')), utils);
   ctx.document.visibilityState = 'visible'; docEvents.visibilitychange();
   assert.equal(rechecks, 1);
   console.log('PASS: 기록 카드 "다시 검색" 좌표 전달(null 제외), 계정 전환 시 기록 비움(재조회 실패 포함), 탭 복귀 재확인');
+
+  // 즐겨찾기 카드 "여기서 출발": 유효한 좌표만 fromLat·fromLng로, 주소 파라미터는 넣지 않는다
+  const startHref = (place) => {
+    const href = ctx.renderPlaceCard({ id: '1', type: '집', address: '주소', ...place }).match(/class="saved-search" href="([^"]+)"/)[1];
+    const url = new URL(href.replace(/&#38;/g, '&'), 'http://localhost');
+    assert.equal(url.pathname, '/pages/search.html');
+    return url.searchParams;
+  };
+  let start = startHref({ name: '우리 집', lat: 35.2285, lng: 128.8894 });
+  assert.deepEqual([...start.keys()], ['from', 'fromLat', 'fromLng']);
+  assert.deepEqual([start.get('from'), start.get('fromLat'), start.get('fromLng')], ['우리 집', '35.2285', '128.8894']);
+  for (const bad of [{ lat: null, lng: null }, { lat: 35.2 }, { lat: '35.2', lng: '128.8' }, { lat: 91, lng: 128 }, { lat: 35, lng: -181 }, { lat: NaN, lng: 128 }]) {
+    start = startHref({ name: '집', ...bad });
+    assert.deepEqual([...start.keys()], ['from'], JSON.stringify(bad));
+  }
+  // 이름에 특수문자가 있어도 링크 속성이 깨지지 않는다
+  start = startHref({ name: '"><img src=x>&', lat: 35.1, lng: 129 });
+  assert.equal(start.get('from'), '"><img src=x>&');
+  assert.ok(!ctx.renderPlaceCard({ id: '1', type: '집', address: '', name: '"><img src=x>' }).includes('<img'));
+  console.log('PASS: 즐겨찾기 "여기서 출발" 링크에 유효 좌표만 fromLat·fromLng 전달, 이름 이스케이프');
 }
 
 // --- 6. 장소 추가 모달: 목록에서 골라야 저장, 고친 뒤에는 다시 골라야 함

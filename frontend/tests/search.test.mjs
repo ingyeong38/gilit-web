@@ -188,5 +188,92 @@ for (const [address, expected] of [['부산 부산진구 엄광로 176', '부산
   assert.equal(restoreStubs[1].getPlace().lat, 35.1441);
 }
 console.log('PASS: 자동완성 목적지 주소 toAddress 전달(공백 정리·255자 한도·비문자열·제어 문자 거부), 조건 수정 복원');
+
+// 즐겨찾기 "여기서 출발"로 들어온 경우: 쿼리의 출발지 좌표를 선택된 장소로 복원해 결과 화면(경로 요청)에 fromLat·fromLng를 싣는다.
+// 자동완성처럼 이름이 입력칸과 같을 때만 선택값을 돌려주는 모의 객체를 쓴다 (실제 getPlace와 같은 규칙).
+function openSearchPage(query) {
+  const realistic = [], pageNavigations = [];
+  const inputs = { from: form.elements.from, to: form.elements.to };
+  const context = vm.createContext({ ...pageContext,
+    location: { search: '?' + new URLSearchParams(query), assign: (url) => pageNavigations.push(url) },
+    initializeAuth: () => new Promise(() => {}), // 저장 데이터 불러오기는 이 검사와 무관하다
+    setupAutocomplete: (input) => {
+      let place = null;
+      const stub = { close() {}, getPlace: () => (place?.name === input.value.trim() ? place : null), setPlace(value) { place = value; }, get raw() { return place; } };
+      realistic.push(stub); return stub;
+    } });
+  vm.runInContext(plain(source), context);
+  const submit = async ({ from, to = '동의대학교' } = {}) => {
+    windowMock.fire('pageshow');
+    if (from !== undefined) inputs.from.value = from;
+    inputs.to.value = to; form.elements.date.value = valid.date; form.elements.time.value = valid.time;
+    form.fire('submit'); await runTimers();
+    return new URL(pageNavigations.at(-1), 'http://localhost').searchParams;
+  };
+  return { context, stubs: realistic, submit };
+}
+const source = await read('../js/pages/search.js');
+{
+  const page = openSearchPage({ from: '우리 집', fromLat: '35.2285', fromLng: '128.8894' });
+  assert.equal(form.elements.from.value, '우리 집');
+  assert.deepEqual({ ...page.stubs[0].raw }, { name: '우리 집', lat: 35.2285, lng: 128.8894 });
+  let sent = await page.submit();
+  assert.deepEqual([sent.get('from'), sent.get('fromLat'), sent.get('fromLng')], ['우리 집', '35.2285', '128.8894']);
+  assert.equal(sent.has('toLat'), false, '목적지는 고르지 않았으므로 이름만');
+  // 출발지를 고치면 이전 좌표로 조회하지 않는다
+  sent = await page.submit({ from: '부산역' });
+  assert.equal(sent.get('from'), '부산역');
+  assert.equal(sent.has('fromLat'), false);
+}
+// 이름만 있으면(좌표 없는 즐겨찾기·직접 입력) 기존처럼 이름만 넘긴다
+{
+  const page = openSearchPage({ from: '집' });
+  assert.equal(page.stubs[0].raw, null);
+  const sent = await page.submit();
+  assert.equal(sent.get('from'), '집');
+  assert.equal(sent.has('fromLat') || sent.has('fromLng'), false);
+}
+// 비정상 좌표는 무시한다
+for (const bad of [{ fromLat: '91', fromLng: '128' }, { fromLat: '35', fromLng: '181' }, { fromLat: 'abc', fromLng: '128' },
+  { fromLat: '', fromLng: '128' }, { fromLat: '35' }, { fromLat: 'Infinity', fromLng: '128' }, { fromLat: ' ', fromLng: ' ' }]) {
+  const page = openSearchPage({ from: '집', ...bad });
+  assert.equal(page.stubs[0].raw, null, JSON.stringify(bad));
+  assert.equal((await page.submit()).has('fromLat'), false);
+}
+// 검색 화면의 빠른 장소(즐겨찾기) 버튼: 좌표를 출발지 선택값으로 넣는다. 좌표 없는 즐겨찾기는 이전 선택을 비운다
+{
+  const page = openSearchPage({});
+  const quick = elements['quick-places'];
+  quick.children = [];
+  page.context.renderQuickPlaces([
+    { id: '1', name: '우리 집', type: '집', lat: 35.2285, lng: 128.8894 },
+    { id: '2', name: '좌표 없음', type: '기타', lat: null, lng: null },
+    { id: '3', name: '이상한 좌표', type: '기타', lat: 999, lng: 128 },
+  ]);
+  assert.equal(quick.children.length, 3);
+  quick.children[0].fire('click');
+  assert.equal(form.elements.from.value, '우리 집');
+  let sent = await page.submit();
+  assert.deepEqual([sent.get('fromLat'), sent.get('fromLng')], ['35.2285', '128.8894']);
+  quick.children[1].fire('click');
+  assert.equal(page.stubs[0].raw, null);
+  sent = await page.submit();
+  assert.equal(sent.get('from'), '좌표 없음');
+  assert.equal(sent.has('fromLat'), false);
+  quick.children[0].fire('click');
+  quick.children[2].fire('click');
+  assert.equal(page.stubs[0].raw, null, '범위 밖 좌표는 쓰지 않고 이전 선택도 남기지 않는다');
+}
+// 결과 화면의 경로 요청(GET /api/routes)에 쿼리 좌표가 그대로 실린다
+{
+  let requested;
+  const api = vm.createContext({ ...utils, USE_MOCK: false, USE_MOCK_ROUTES: false, USE_MOCK_STATS: false, BASE_URL: '/api', URLSearchParams,
+    getUser: () => null, fetch: async (url) => { requested = url; return { ok: true, status: 200, json: async () => [] }; } });
+  vm.runInContext(plain(await read('../js/api.js')), api);
+  await api.getRoutes({ from: '우리 집', to: '동의대학교', arrive: '2026-11-07T00:00:00+09:00', buffer: 10, fromLat: '35.2285', fromLng: '128.8894' });
+  const params = new URL(requested, 'http://localhost').searchParams;
+  assert.deepEqual([params.get('from'), params.get('fromLat'), params.get('fromLng'), params.has('toLat')], ['우리 집', '35.2285', '128.8894', false]);
+}
+console.log('PASS: "여기서 출발" 출발지 좌표 복원·경로 요청 전달, 입력 수정 시 해제, 이름만은 기존 동작, 비정상 좌표 무시, 빠른 장소 버튼 좌표');
 for (const path of ['../js/components/placeAutocomplete.js', '../js/pages/search.js', '../js/pages/result.js', '../js/api.js', '../js/utils.js']) new vm.Script(plain(await read(path)));
 console.log('PASS: 조건 복원·교환·입력별 포커스·중복 제출 방지·뒤로 가기 복구·변경 JS 문법');

@@ -27,13 +27,20 @@ let generation = 0;
 let favorites = [];
 let history = [];
 
+// "여기서 출발": 즐겨찾기 이름(별칭일 수 있다)만 넘기면 서버가 이름으로 장소를 찾다 422를 낸다.
+// 좌표가 있으면 fromLat·fromLng를 함께 넘겨 검색 화면이 출발지를 선택된 장소로 복원하게 한다.
+function startSearchUrl(place) {
+  const coordinates = historyCoordinates({ fromLat: place.lat, fromLng: place.lng });
+  return `/pages/search.html?${new URLSearchParams({ from: place.name, ...coordinates })}`;
+}
+
 function renderPlaceCard(place) {
   const name = escapeHtml(place.name);
   return `
     <article class="saved-card place-card">
       <span class="saved-icon">${icon(PLACE_ICONS[place.type] ?? "location", { size: 20 })}</span>
       <div class="saved-info"><div class="saved-title">${name}<span class="place-type">${escapeHtml(place.type)}</span></div><span>${icon("location", { size: 14 })} ${escapeHtml(place.address)}</span></div>
-      <a class="saved-search" href="/pages/search.html?${new URLSearchParams({ from: place.name })}">여기서 출발 ${icon("arrow", { size: 15 })}</a>
+      <a class="saved-search" href="${escapeHtml(startSearchUrl(place))}">여기서 출발 ${icon("arrow", { size: 15 })}</a>
       <button class="delete-button" type="button" data-delete="${escapeHtml(place.id)}" aria-label="${name} 삭제">${icon("close", { size: 17 })}</button>
     </article>
   `;

@@ -56,12 +56,15 @@ let authListener, modal, pendingReads = [], reads = 0, reloads = 0;
 const events = {}, docEvents = {};
 let rechecks = 0;
 user = { id: 'A' };
+const pageUtils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
+vm.runInContext(strip(await readFile(new URL('../js/utils.js', import.meta.url), 'utf8')), pageUtils);
 const pageCtx = vm.createContext({
   URLSearchParams, location: { search: '', reload: () => reloads++ },
   document: { getElementById: element, querySelectorAll: () => [], addEventListener: (type, fn) => { docEvents[type] = fn; }, visibilityState: 'visible' },
   window: { addEventListener: (type, fn) => { events[type] = fn; } },
   getUser: () => user, onAuthChange: fn => { authListener = fn; },
   requirePageAccess: () => Promise.resolve(), renderIcons() {}, icon: () => '', escapeHtml: String, recheckAuth: () => { rechecks++; },
+  historyCoordinates: pageUtils.historyCoordinates,
   getFavorites: () => { reads++; return new Promise(r => pendingReads.push(r)); },
   getHistory: async () => [], showToast() {},
   openAddPlaceModal: value => { modal = value; },

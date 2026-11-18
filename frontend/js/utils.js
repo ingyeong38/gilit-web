@@ -123,17 +123,32 @@ export function formatRouteLabel(route) {
 
 // 검색 기록 카드(GET /api/history)의 좌표를 결과 화면 쿼리용으로 고른다. 위도·경도가 둘 다 범위 안의 숫자인 쌍만 넣는다.
 // (기록 좌표는 null일 수 있다. 그때는 넣지 않고 결과 화면이 이름으로 찾는다.)
+// 즐겨찾기(GET /api/favorites의 lat·lng)도 같은 규칙으로 쓴다: historyCoordinates({ fromLat: place.lat, fromLng: place.lng }).
 export function historyCoordinates(item = {}) {
   const coordinates = {};
   for (const prefix of ["from", "to"]) {
     const lat = item[`${prefix}Lat`], lng = item[`${prefix}Lng`];
-    if (typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)
-      && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+    if (isCoordinatePair(lat, lng)) {
       coordinates[`${prefix}Lat`] = lat;
       coordinates[`${prefix}Lng`] = lng;
     }
   }
   return coordinates;
+}
+
+function isCoordinatePair(lat, lng) {
+  return typeof lat === "number" && typeof lng === "number" && Number.isFinite(lat) && Number.isFinite(lng)
+    && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+}
+
+// URL 쿼리의 좌표 쌍(문자열, 예: fromLat·fromLng)을 숫자로 읽는다. 둘 다 비어 있지 않고 범위 안의 숫자일 때만 { lat, lng }, 아니면 null.
+export function queryCoordinates(query, prefix) {
+  const read = (key) => {
+    const value = query.get(`${prefix}${key}`);
+    return typeof value === "string" && value.trim() ? Number(value) : NaN;
+  };
+  const lat = read("Lat"), lng = read("Lng");
+  return isCoordinatePair(lat, lng) ? { lat, lng } : null;
 }
 
 // 장소 주소(자동완성 결과의 address, 결과 화면 쿼리의 toAddress). 즐겨찾기 address 한도(255자, docs/api-spec.md)에 맞춘다.
