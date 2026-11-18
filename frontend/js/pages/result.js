@@ -14,6 +14,7 @@ import {
   formatFullDate,
   formatRouteLabel,
   formatWon,
+  placeAddress,
   validateSearchConditions,
   timeOf,
   toIsoTime,
@@ -32,6 +33,8 @@ function readSearchQuery() {
   for (const key of ["fromLat", "fromLng", "toLat", "toLng"]) {
     if (query.has(key)) coordinates[key] = query.get(key);
   }
+  // 목적지 주소(길찾기 화면에서 고른 장소). 별 저장에만 쓴다. 형식 검사는 saveDestination의 placeAddress가 한다.
+  if (query.has("toAddress")) coordinates.toAddress = query.get("toAddress");
   return { from, to, date, time, buffer, ...coordinates };
 }
 
@@ -131,19 +134,42 @@ async function loadDestinationFavorite(name) {
   }
 }
 
+// 좌표 없이 들어온 목적지(이름만 있는 공유 링크 등)를 이름으로 찾은 결과. 이 화면의 메모리에만 둔다 (브라우저 저장소에 넣지 않는다).
+// 이름이 정확히 같은 결과가 하나일 때만 { address, lat, lng }, 아니면 null. 한 번 찾으면 다시 찾지 않는다.
+let destinationLookup = null;
+
+async function lookupDestination(name) {
+  if (destinationLookup?.name === name) return destinationLookup.place;
+  const places = await searchPlaces(name);
+  const exact = (Array.isArray(places) ? places : []).filter((place) => place?.name === name
+    && typeof place.lat === "number" && typeof place.lng === "number"
+    && Number.isFinite(place.lat) && Number.isFinite(place.lng)
+    && Math.abs(place.lat) <= 90 && Math.abs(place.lng) <= 180);
+  const place = exact.length === 1
+    ? { address: typeof exact[0].address === "string" && exact[0].address ? exact[0].address : name, lat: exact[0].lat, lng: exact[0].lng }
+    : null;
+  destinationLookup = { name, place };
+  return place;
+}
+
 // 이번 검색의 목적지를 저장한다. 같은 이름이 이미 있으면 그 항목을 돌려준다.
-async function saveDestination({ to: name, toLat, toLng }) {
+// 쿼리에 목적지 좌표가 있으면(검색에서 고른 장소, 기록의 "다시 검색") 그 좌표를 그대로 쓰고 이름 검색을 하지 않는다.
+// 없으면 이름으로 한 번 찾아 정확히 일치하는 결과가 하나일 때만 그 좌표·주소로 저장한다.
+// 주소: 쿼리의 toAddress(길찾기에서 고른 장소의 주소)가 올바르면 그것, 없으면 이름 검색 결과의 주소, 그것도 없으면 장소 이름.
+async function saveDestination({ to: name, toLat, toLng, toAddress }) {
   const favorites = await getFavorites();
   const existing = favorites.find((place) => place.name === name);
   if (existing) return existing;
+  const address = placeAddress(toAddress);
   const lat = readCoordinate(toLat, 90);
   const lng = readCoordinate(toLng, 180);
-  const located = lat !== null && lng !== null;
-  // 서버는 좌표가 없으면 이름으로 다시 찾다가 400을 낸다. 검색에서 고른 장소(좌표 있음)만 보낸다.
-  if (!USE_MOCK_FAVORITES && !located) throw Object.assign(new Error(PLACE_REQUIRED), { status: 400 });
-  const places = await searchPlaces(name);
-  const address = places.find((place) => place.name === name)?.address ?? name;
-  return addFavorite({ name, address, type: "기타", ...(located ? { lat, lng } : {}) });
+  if (lat !== null && lng !== null) return addFavorite({ name, address: address ?? name, type: "기타", lat, lng });
+
+  const found = await lookupDestination(name);
+  if (found) return addFavorite({ name, type: "기타", ...found, ...(address ? { address } : {}) });
+  // 서버는 좌표가 없으면 이름으로 다시 찾다가 400을 낸다. 목업 즐겨찾기(localStorage)만 좌표 없이 저장한다.
+  if (!USE_MOCK_FAVORITES) throw Object.assign(new Error(PLACE_REQUIRED), { status: 400 });
+  return addFavorite({ name, address: address ?? name, type: "기타" });
 }
 
 async function toggleDestinationFavorite(search) {

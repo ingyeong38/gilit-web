@@ -20,8 +20,9 @@ export function openModal({ className = "modal", content, onDismiss }) {
     close();
     onDismiss?.();
   };
+  // 안쪽 요소(자동완성 목록 등)가 Esc를 먼저 처리했으면(preventDefault) 모달은 닫지 않는다.
   const onKeydown = (event) => {
-    if (event.key === "Escape") dismiss();
+    if (event.key === "Escape" && !event.defaultPrevented) dismiss();
   };
 
   backdrop.addEventListener("mousedown", (event) => {

@@ -147,7 +147,8 @@ export async function removeFavorite(id) {
 }
 
 export async function getHistory() {
-  if (!USE_MOCK) return requestJson(buildUrl("/history"));
+  // 계정을 바꾼 뒤 이전 계정의 응답이 브라우저 캐시에서 나오지 않게 한다 (getFavorites와 같다).
+  if (!USE_MOCK) return requestJson(buildUrl("/history"), { cache: "no-store" });
 
   const history = await readMock("history.json");
   const latest = history.map((item) => dateOf(item.arriveTime)).sort().at(-1);

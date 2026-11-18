@@ -3,18 +3,36 @@
     "id": "hist-1",
     "from": "김해시청",
     "to": "동의대학교",
-    "arriveTime": "2026-11-02T09:00:00+09:00"
+    "arriveTime": "2026-11-02T09:00:00+09:00",
+    "buffer": 10,
+    "departTime": "2026-11-02T08:12:00+09:00",
+    "fromLat": 35.2285,
+    "fromLng": 128.8894,
+    "toLat": 35.1441,
+    "toLng": 129.0336
   },
   {
     "id": "hist-2",
     "from": "김해공항 국내선",
     "to": "부산역",
-    "arriveTime": "2026-11-01T18:30:00+09:00"
+    "arriveTime": "2026-11-01T18:30:00+09:00",
+    "buffer": 10,
+    "departTime": null,
+    "fromLat": 35.1732,
+    "fromLng": 128.9482,
+    "toLat": 35.1151,
+    "toLng": 129.0422
   },
   {
     "id": "hist-3",
     "from": "집",
     "to": "센텀시티",
-    "arriveTime": "2026-10-31T10:00:00+09:00"
+    "arriveTime": "2026-10-31T10:00:00+09:00",
+    "buffer": 0,
+    "departTime": null,
+    "fromLat": null,
+    "fromLng": null,
+    "toLat": null,
+    "toLng": null
   }
 ]

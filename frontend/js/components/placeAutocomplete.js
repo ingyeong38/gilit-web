@@ -3,7 +3,9 @@ import { escapeHtml } from "/js/utils.js";
 import { icon } from "/js/components/icon.js";
 
 // 입력 직후 요청 번호를 바꿔 디바운스 대기 중에도 이전 응답을 무효화한다.
-export function setupAutocomplete(input) {
+// options.label: 목록의 aria-label (기본: from이면 출발지, 아니면 목적지 검색 결과)
+// options.onChange(place | null): 목록에서 고르면 그 장소({ name, address, lat, lng, ... }), 입력을 고쳐 선택이 풀리면 null
+export function setupAutocomplete(input, { label, onChange } = {}) {
   const field = input.closest(".field");
   const panel = document.createElement("div");
   panel.className = "autocomplete";
@@ -14,7 +16,7 @@ export function setupAutocomplete(input) {
   const list = document.createElement("div");
   list.id = `${input.name}-places`;
   list.setAttribute("role", "listbox");
-  list.setAttribute("aria-label", input.name === "from" ? "출발지 검색 결과" : "목적지 검색 결과");
+  list.setAttribute("aria-label", label ?? (input.name === "from" ? "출발지 검색 결과" : "목적지 검색 결과"));
   panel.append(status, list);
   field.append(panel);
   input.setAttribute("role", "combobox");
@@ -52,6 +54,7 @@ export function setupAutocomplete(input) {
     input.value = selectedPlace.name;
     input.focus();
     close();
+    onChange?.(selectedPlace);
   }
 
   async function search(id) {
@@ -95,7 +98,12 @@ export function setupAutocomplete(input) {
   }
 
   input.addEventListener("focus", schedule);
-  input.addEventListener("input", () => { selectedPlace = null; schedule(); });
+  input.addEventListener("input", () => {
+    const hadPlace = selectedPlace !== null;
+    selectedPlace = null;
+    if (hadPlace) onChange?.(null);
+    schedule();
+  });
   input.addEventListener("keydown", (event) => {
     if (event.isComposing) return;
     if (event.key === "Escape") { if (!panel.hidden) event.preventDefault(); close(); return; }
@@ -119,11 +127,14 @@ export function setupAutocomplete(input) {
   field.addEventListener("focusout", (event) => {
     if (!field.contains(event.relatedTarget)) close();
   });
-  document.addEventListener("pointerdown", (event) => {
+  const onDocumentPointerDown = (event) => {
     if (!field.contains(event.target)) close();
-  });
+  };
+  document.addEventListener("pointerdown", onDocumentPointerDown);
   return {
     close,
+    // 모달처럼 입력칸이 사라지는 곳에서 부른다. 문서에 단 이벤트를 뗀다.
+    destroy: () => { close(); document.removeEventListener("pointerdown", onDocumentPointerDown); },
     getPlace: () => selectedPlace?.name === input.value.trim() ? selectedPlace : null,
     setPlace: (place) => { selectedPlace = place; },
   };
