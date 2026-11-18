@@ -1,6 +1,7 @@
 import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
 import { setupAutocomplete } from "/js/components/placeAutocomplete.js";
 import { getFavorites, getHistory } from "/js/api.js";
+import { getUser, initializeAuth, isRedirecting, onAuthChange } from "/js/auth.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { showToast } from "/js/components/toast.js";
 import {
@@ -139,13 +140,32 @@ function renderRecent(history) {
   });
 }
 
+// 로그인 상태가 확정된 뒤(initializeAuth)와 로그인·로그아웃할 때마다 다시 그린다.
+// 비로그인이면 서버를 부르지 않는다 (둘 다 401이라 토스트만 뜬다).
+let savedDataGeneration = 0;
+function clearSavedData() {
+  const quickPlaces = document.getElementById("quick-places");
+  quickPlaces.querySelectorAll("button").forEach((button) => button.remove());
+  document.getElementById("recent-grid").replaceChildren();
+}
+
 async function loadSavedData() {
+  const generation = ++savedDataGeneration;
+  clearSavedData();
+  const loggedIn = Boolean(getUser());
+  document.getElementById("quick-places").hidden = !loggedIn;
+  document.getElementById("recent-grid").hidden = !loggedIn;
+  document.getElementById("recent-login-hint").hidden = loggedIn;
+  if (!loggedIn || isRedirecting()) return;
+
   const [favorites, history] = await Promise.allSettled([getFavorites(), getHistory()]);
+  // 응답을 기다리는 사이 로그아웃하거나 다른 계정으로 로그인했다면 버린다.
+  if (generation !== savedDataGeneration) return;
   if (favorites.status === "fulfilled") renderQuickPlaces(favorites.value);
   if (history.status === "fulfilled") renderRecent(history.value);
-  if (favorites.status === "rejected" || history.status === "rejected") {
-    showToast("저장된 정보를 불러오지 못했어요", { error: true });
-  }
+  const failed = [favorites.status === "rejected" && "즐겨찾기를", history.status === "rejected" && "최근 검색을"].filter(Boolean);
+  if (failed.length === 2) showToast("저장된 정보를 불러오지 못했어요", { error: true });
+  else if (failed.length === 1) showToast(`${failed[0]} 불러오지 못했어요`, { error: true });
 }
 
 renderIcons();
@@ -162,7 +182,10 @@ const restoredQuery = new URLSearchParams(location.search);
 if (USE_MOCK) {
   document.getElementById("place-search-hint").textContent = "예시 장소 검색: 김해·부산의 제공된 예시 장소에서 이름과 주소를 검색합니다. 장소명 직접 입력도 가능해요.";
 }
-loadSavedData();
+initializeAuth().then(() => {
+  loadSavedData();
+  onAuthChange(loadSavedData);
+});
 
 bufferButtons.forEach((button) => {
   button.addEventListener("click", () => setBuffer(button.dataset.buffer));

@@ -106,7 +106,7 @@ controller.close();
 console.log('PASS: 디바운스·이전 응답 차단·키보드·마우스 선택·결과 없음·실패·HTML 이스케이프·닫기');
 
 // 실제 페이지 코드를 모의 DOM에서 실행해 제출, 교환, 조건 복원, 뒤로 가기를 검사한다.
-const elements = Object.fromEntries(['search-form', 'search-submit', 'swap-button', 'quick-places', 'recent-grid', 'place-search-hint'].map((id) => [id, new Element()]));
+const elements = Object.fromEntries(['search-form', 'search-submit', 'swap-button', 'quick-places', 'recent-grid', 'recent-login-hint', 'place-search-hint'].map((id) => [id, new Element()]));
 const form = elements['search-form']; form.elements = Object.fromEntries(['from', 'to', 'date', 'time'].map((name) => [name, new Element()]));
 const buttons = ['0', '5', '10', '15'].map((buffer) => { const el = new Element(); el.dataset.buffer = buffer; return el; });
 const windowMock = new Element(), toasts = [], navigations = [];
@@ -117,6 +117,7 @@ const pageContext = vm.createContext({ ...utils, Date: FixedDate, USE_MOCK: true
   window: windowMock, location: { search: '?' + new URLSearchParams(valid), assign: (url) => navigations.push(url) },
   icon: () => '', renderIcons() {}, showToast: (message) => toasts.push(message),
   setupAutocomplete: () => ({ close() {}, getPlace() { return null; }, setPlace() {} }), getFavorites: async () => [], getHistory: async () => [],
+  getUser: () => null, initializeAuth: async () => {}, isRedirecting: () => false, onAuthChange() {},
   setTimeout: setTimer, clearTimeout: (id) => timers.delete(id),
   validateSearchConditions: (data) => utils.validateSearchConditions(data, fixedNow),
 });

@@ -49,6 +49,9 @@ export function logout() {
   window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
 }
 
+// 소셜 로그인 시작·복귀로 화면을 떠나는 중이면 true. 화면은 이때 데이터 요청을 시작하지 않는다.
+export function isRedirecting() { return redirecting; }
+
 export function takeAuthMessage() { const message = authMessage; authMessage = ""; return message; }
 
 export function initializeAuth() {
@@ -80,7 +83,7 @@ export function initializeAuth() {
       let returnTo;
       try { returnTo = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY); } catch { /* 기본 현재 화면 */ }
       if (result === "success" && user && !USE_MOCK) {
-        if (returnTo) location.replace(safeReturnPath(returnTo));
+        if (returnTo) { redirecting = true; location.replace(safeReturnPath(returnTo)); }
       } else {
         const messages = {
           cancelled: "소셜 로그인이 취소되었습니다.",
