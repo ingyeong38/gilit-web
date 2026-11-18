@@ -32,6 +32,8 @@
 .section-row { display: flex; justify-content: space-between; align-items: flex-end; }
 .section-row > button { border: 0; background: transparent; color: var(--blue); font-size: 10px; display: flex; align-items: center; cursor: pointer; }
 .recent-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-top: 15px; }
+.recent-grid[hidden], .quick-places[hidden] { display: none; }
+.recent-login-hint { margin-top: 15px; color: var(--muted); font-size: 12px; }
 .recent-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--white); padding: 15px; display: flex; align-items: center; gap: 11px; text-align: left; cursor: pointer; transition: .2s; }
 .recent-card:hover { border-color: #c3d4f4; box-shadow: var(--shadow); transform: translateY(-2px); }
 .recent-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--surface); color: var(--muted); flex: none; }
