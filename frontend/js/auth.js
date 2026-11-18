@@ -4,6 +4,13 @@ import { getSessionUser, getSocialLoginUrl } from "/js/api.js";
 const AUTH_CHANGE_EVENT = "gilit:authchange";
 const MOCK_SESSION = "gilit:mock:session";
 const RETURN_KEY = "gilit:auth:return";
+// 로그인에 성공하면 가는 메인 화면 (헤더 로고가 가리키는 홈). 보호된 화면 접근 등 이동할 곳을 정해 둔 로그인만 예외다.
+export const HOME_PATH = "/index.html";
+const HOME_PATHS = ["/", "/index.html"];
+// 결과 화면에서 로그인하면(별을 누르려다 로그인하는 경우가 많다) 메인으로 가지 않고 그 결과 화면에 머문다.
+const RESULT_PATH = "/pages/result.html";
+// 복귀 주소 최대 길이. 결과 화면 쿼리(장소 이름·좌표·주소)를 담기에 충분하고, 그보다 길면 메인으로 보낸다.
+const MAX_RETURN_PATH_LENGTH = 2048;
 let user = null;
 let initialization;
 let redirecting = false;
@@ -24,22 +31,51 @@ export function setUser(value) {
   window.dispatchEvent(new Event(AUTH_CHANGE_EVENT));
 }
 
+// 복귀 주소는 이 사이트의 알려진 화면만 허용한다. 그 밖의 값은 메인 화면으로.
 export function safeReturnPath(value) {
   try {
-    if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/pages/search.html";
+    if (typeof value !== "string" || value.length > MAX_RETURN_PATH_LENGTH || !value.startsWith("/") || value.startsWith("//")) return HOME_PATH;
     const url = new URL(value, location.origin);
-    if (url.origin !== location.origin || !["/", "/index.html", "/pages/search.html", "/pages/result.html", "/pages/favorites.html", "/pages/stats.html"].includes(url.pathname)) return "/pages/search.html";
+    if (url.origin !== location.origin || !["/", "/index.html", "/pages/search.html", RESULT_PATH, "/pages/favorites.html", "/pages/stats.html"].includes(url.pathname)) return HOME_PATH;
     url.searchParams.delete("auth_result");
-    return url.pathname + url.search + url.hash;
-  } catch { return "/pages/search.html"; }
+    const path = url.pathname + url.search + url.hash;
+    return path.length > MAX_RETURN_PATH_LENGTH ? HOME_PATH : path;
+  } catch { return HOME_PATH; }
 }
 
-export function login(provider, returnTo = location.pathname + location.search + location.hash) {
+export function isHomePage() { return HOME_PATHS.includes(location.pathname); }
+
+// 로그인해도 이동하지 않고 상태만 갱신하는 화면: 메인 화면과 결과 화면.
+function staysAfterLogin() { return isHomePage() || location.pathname === RESULT_PATH; }
+
+// 소셜 로그인 시작. returnTo는 이동할 곳을 정해 둔 로그인(보호된 화면 접근, guard.js)이 넘긴다.
+// 결과 화면에서 시작하면 그 결과 화면 전체 주소(쿼리 포함)를 복귀 주소로 남긴다.
+// 둘 다 아니면 저장된 이전 값도 지워, 콜백 복귀(auth_result=success) 뒤 메인 화면으로 간다.
+export function login(provider, returnTo) {
   if (redirecting) return;
   const url = getSocialLoginUrl(provider); // 미설정일 때 이동/성공 처리하지 않는다.
-  sessionStorage.setItem(RETURN_KEY, safeReturnPath(returnTo));
+  if (!returnTo && location.pathname === RESULT_PATH) returnTo = location.pathname + location.search + location.hash;
+  if (returnTo) sessionStorage.setItem(RETURN_KEY, safeReturnPath(returnTo));
+  else sessionStorage.removeItem(RETURN_KEY);
   redirecting = true;
   try { location.assign(url); } catch (error) { redirecting = false; throw error; }
+}
+
+// 이메일 로그인 성공 (authModal.js). 세션은 서버가 이미 만들었다. 메인 화면이 아니면 메인으로 이동하고,
+// 메인이나 결과 화면이면 이동 없이 상태만 갱신한다 (redirecting은 켜지 않는다. 결과 화면은 인증 변경 이벤트로 별 상태를
+// 다시 불러온다). 이동할 때는 setUser 전에 redirecting을 켜서 인증 변경 이벤트를 받은 화면이 저장 데이터를 요청하지 않게
+// 한다 (isRedirecting). 이동했으면 true.
+export function completeLogin(value) {
+  const leaving = !staysAfterLogin();
+  if (leaving) redirecting = true;
+  try {
+    setUser(value);
+    if (leaving) location.assign(HOME_PATH);
+  } catch (error) {
+    redirecting = false;
+    throw error;
+  }
+  return leaving;
 }
 
 export function logout() {
@@ -83,7 +119,9 @@ export function initializeAuth() {
       let returnTo;
       try { returnTo = sessionStorage.getItem(RETURN_KEY); sessionStorage.removeItem(RETURN_KEY); } catch { /* 기본 현재 화면 */ }
       if (result === "success" && user && !USE_MOCK) {
-        if (returnTo) { redirecting = true; location.replace(safeReturnPath(returnTo)); }
+        // 콜백은 언제나 /pages/search.html로 돌아온다. 정해 둔 복귀 주소가 없으면 메인 화면으로 간다.
+        redirecting = true;
+        location.replace(returnTo ? safeReturnPath(returnTo) : HOME_PATH);
       } else {
         const messages = {
           cancelled: "소셜 로그인이 취소되었습니다.",

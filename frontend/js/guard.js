@@ -53,6 +53,8 @@ export async function requirePageAccess() {
   if (content) content.hidden = true;
   return new Promise((resolve) => {
     openAuthModal({
+      // 소셜 로그인도 메인 화면이 아니라 이 화면으로 돌아오게 한다 (이메일 로그인은 onLogin으로 이 화면에 머문다).
+      returnTo: location.pathname + location.search + location.hash,
       onLogin: () => {
         showContent();
         resolve();

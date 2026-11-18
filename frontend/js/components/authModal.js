@@ -1,6 +1,6 @@
 import { USE_MOCK } from "/js/config.js";
 import { ApiError, loginWithEmail, signup } from "/js/api.js";
-import { login as loginWithProvider, setUser } from "/js/auth.js";
+import { completeLogin, login as loginWithProvider, setUser } from "/js/auth.js";
 import { icon } from "/js/components/icon.js";
 import { openModal } from "/js/components/modal.js";
 
@@ -177,6 +177,8 @@ function bindPasswordToggles(root) {
 let activeAuthModal = null;
 
 // view: "login" | "signup". 로그인에 성공하면 사용자 정보를 저장하고 onLogin을 부른다.
+// onLogin이 없으면(헤더의 로그인 버튼) 메인 화면으로 이동한다. 메인이나 결과 화면이면 상태만 갱신한다 (auth.js completeLogin).
+// onLogin·returnTo는 이동할 곳을 정해 둔 로그인(보호된 화면 접근, guard.js)이 넘긴다.
 // onDismiss는 로그인하지 않고 닫았을 때(X, 배경 클릭, Esc) 불린다.
 export function openAuthModal({ view = "login", onLogin, onDismiss, returnTo, message = "" } = {}) {
   if (activeAuthModal?.isConnected) return;
@@ -223,8 +225,13 @@ export function openAuthModal({ view = "login", onLogin, onDismiss, returnTo, me
         password: form.elements.password.value,
       });
       if (!element.isConnected) return;
-      setUser(user);
-      finishLogin();
+      if (onLogin) {
+        setUser(user);
+        finishLogin();
+        return;
+      }
+      close();
+      completeLogin(user);
     });
     modal.querySelectorAll("[data-provider]").forEach((button) => {
       button.addEventListener("click", () => {

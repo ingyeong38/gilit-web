@@ -20,7 +20,7 @@ const { context: c, navigations } = setup();
 c.localStorage.setItem('gilit:user', '{"name":"가짜 사용자"}');
 assert.equal(c.getUser(), null);
 await c.initializeAuth(); assert.equal(c.getUser().name, '길잇 사용자');
-for (const value of ['//evil.test', '/\\evil.test', 'https://evil.test', 'javascript:alert(1)', '/unknown', '/api/auth/logout']) assert.equal(c.safeReturnPath(value), '/pages/search.html');
+for (const value of ['//evil.test', '/\\evil.test', 'https://evil.test', 'javascript:alert(1)', '/unknown', '/api/auth/logout']) assert.equal(c.safeReturnPath(value), '/index.html'); // 허용되지 않은 복귀 주소는 메인 화면으로
 assert.equal(c.safeReturnPath('/pages/result.html?from=서울&auth_result=success#route'), '/pages/result.html?from=%EC%84%9C%EC%9A%B8#route');
 c.login('google', '/pages/favorites.html?tab=history'); c.login('google'); assert.equal(navigations.length, 1);
 assert.equal(c.sessionStorage.getItem('gilit:auth:return'), '/pages/favorites.html?tab=history');

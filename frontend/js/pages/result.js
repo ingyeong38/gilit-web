@@ -1,6 +1,6 @@
 import { normalizeRouteGraphs } from "/js/components/durationGraph.js?v=card530-20261114-6";
 import { USE_MOCK as USE_MOCK_FAVORITES, USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
-import { getUser, initializeAuth, onAuthChange } from "/js/auth.js";
+import { getUser, initializeAuth, isRedirecting, onAuthChange } from "/js/auth.js";
 import { addFavorite, getFavorites, getRouteGraph, getRoutes, removeFavorite, searchPlaces } from "/js/api.js";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -123,7 +123,8 @@ async function loadDestinationFavorite(name) {
   const current = ++favoriteGeneration;
   destinationFavoriteId = null;
   renderStar();
-  if (!getUser()) return;
+  // 로그인 직후 메인 화면으로 이동하는 중이면 즐겨찾기 목록을 요청하지 않는다.
+  if (!getUser() || isRedirecting()) return;
   try {
     const favorites = await getFavorites();
     if (current !== favoriteGeneration) return;
