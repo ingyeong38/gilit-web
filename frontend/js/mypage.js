@@ -1,6 +1,7 @@
 // 마이페이지의 데이터와 계산. 화면 연결은 js/pages/mypage.js가 한다.
-// 이번 범위는 화면과 mock 데이터까지다. 서버 연결 지점은 아래 TODO에 있다 (서버 호출은 js/api.js에만 둔다).
-import { USE_MOCK_STATS } from "/js/config.js";
+// 닉네임 저장은 서버(PATCH /api/auth/me)와 연결돼 있다. 나머지 서버 연결 지점은 아래 TODO에 있다 (서버 호출은 js/api.js에만 둔다).
+import { getFavorites, getMyStats, updateNickname } from "/js/api.js";
+import { buildSearchUrl } from "/js/links.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -8,15 +9,16 @@ const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
 // --- 닉네임 ---
 
-// 닉네임 규칙 (다음 작업의 서버 검증도 이 문장 그대로 같은 규칙을 쓴다)
-// - 앞뒤 공백 제거 후 길이 2~20자
-// - 허용 문자: 한글 완성형(가-힣), 영문(A-Za-z), 숫자(0-9), 공백(스페이스), 특수문자 - _ ! # (이 4개만)
-// - 한글·영문·숫자 중 최소 1자를 포함해야 한다(특수문자와 공백만으로 이루어진 값 불허)
-// - 불허: 위 외의 모든 문자(. @ / < > & ' " 등 특수문자, 이모지, 한글 자모 단독 ㄱ-ㅎ·ㅏ-ㅣ, 탭·줄바꿈 등 스페이스 이외의 공백 문자)
-// - 중간 공백은 단일 공백만 허용(연속 공백 불허)
-// - 빈 값 불가, 현재 닉네임과 같으면 저장 불가
-// - 규칙은 변경 시에만 검사한다(현재 표시 중인 닉네임에는 적용하지 않는다)
-// - 중복은 허용한다
+// 닉네임 규칙 (서버 backend/app/auth/nickname.py와 같다. 바꾸면 함께 고친다)
+// - NFC 정규화 후 앞뒤 공백 제거, 길이 2~20자(글자 수 기준)
+// - 허용 문자: 한글 완성형(가-힣), 영문(A-Za-z), 숫자(0-9), 공백(스페이스), 특수문자 - _ ! # 만
+// - 한글·영문·숫자 중 최소 1자 포함, 연속 공백 불허
+// - 불허: 그 외 문자, 이모지, 한글 자모 단독, 탭·줄바꿈 등 스페이스 이외의 공백 문자
+// - 중복 닉네임 허용
+// - 규칙은 변경 요청 값에만 적용한다(기존 닉네임은 검사하지 않는다)
+// - 현재 닉네임과 같으면 화면에서 저장 버튼을 막는다 (서버는 같은 값도 200, 변경 없음)
+// 실패 코드는 서버와 같다: empty, chars, spaces, length, required (화면 전용: same)
+// 두 쪽의 결과가 같은지는 frontend/tests/fixtures/nickname-cases.json으로 확인한다.
 export const NICKNAME_RULES = Object.freeze({ minLength: 2, maxLength: 20 });
 // 허용 문자 전체 (스페이스는 U+0020만. 탭·줄바꿈·전각 공백은 여기에 없으므로 불허)
 export const NICKNAME_ALLOWED_PATTERN = /^[가-힣A-Za-z0-9 \-_!#]+$/;
@@ -27,38 +29,53 @@ export const NICKNAME_HELP_TEXT = "한글, 영문, 숫자, 공백, - _ ! # 사�
 export const NICKNAME_MESSAGES = Object.freeze({
   empty: "닉네임을 입력해 주세요.",
   length: `닉네임은 ${NICKNAME_RULES.minLength}~${NICKNAME_RULES.maxLength}자로 입력해 주세요.`,
-  invalidChar: "사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.",
-  consecutiveSpaces: "공백은 한 칸씩만 쓸 수 있어요.",
-  needLetter: "한글, 영문, 숫자를 1자 이상 포함해 주세요.",
+  chars: "사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.",
+  spaces: "공백은 한 칸씩만 쓸 수 있어요.",
+  required: "한글, 영문, 숫자를 1자 이상 포함해 주세요.",
   same: "현재 닉네임과 같아요.",
 });
 
-// 길이는 앞뒤 공백을 뺀 글자 수로 센다 (허용 문자는 모두 한 글자가 한 칸이다).
-export function nicknameLength(value) {
-  return [...String(value ?? "").trim()].length;
+// NFC 정규화 후 앞뒤 공백 제거 (서버와 같다. 맥에서 복사한 NFD 한글도 완성형으로 맞춘다)
+export function normalizeNickname(value) {
+  return typeof value === "string" ? value.normalize("NFC").trim() : "";
 }
 
-// { ok, value(앞뒤 공백 제거), code, message }. 검사 순서: 빈 값 → 허용 문자 → 연속 공백 → 길이 → 한글·영문·숫자 포함 → 현재와 같음.
-// code: "empty" | "invalidChar" | "consecutiveSpaces" | "length" | "needLetter" | "same" | ""
+// 길이는 정규화·앞뒤 공백 제거 뒤 글자 수로 센다 (허용 문자는 모두 한 글자가 한 칸이다).
+export function nicknameLength(value) {
+  return [...normalizeNickname(String(value ?? ""))].length;
+}
+
+// { ok, value(정규화·앞뒤 공백 제거), code, message }. 검사 순서: 빈 값 → 허용 문자 → 연속 공백 → 길이 → 한글·영문·숫자 포함 → 현재와 같음.
+// code: "empty" | "chars" | "spaces" | "length" | "required" | "same" | ""
 export function validateNickname(value, { current = "" } = {}) {
-  const nickname = typeof value === "string" ? value.trim() : "";
+  const nickname = normalizeNickname(value);
   const fail = (code) => ({ ok: false, value: nickname, code, message: NICKNAME_MESSAGES[code] });
   const length = [...nickname].length;
   if (!length) return fail("empty");
-  if (!NICKNAME_ALLOWED_PATTERN.test(nickname)) return fail("invalidChar");
-  if (NICKNAME_CONSECUTIVE_SPACES.test(nickname)) return fail("consecutiveSpaces");
+  if (!NICKNAME_ALLOWED_PATTERN.test(nickname)) return fail("chars");
+  if (NICKNAME_CONSECUTIVE_SPACES.test(nickname)) return fail("spaces");
   if (length < NICKNAME_RULES.minLength || length > NICKNAME_RULES.maxLength) return fail("length");
-  if (!NICKNAME_REQUIRED_PATTERN.test(nickname)) return fail("needLetter");
-  if (nickname === String(current ?? "").trim()) return fail("same");
+  if (!NICKNAME_REQUIRED_PATTERN.test(nickname)) return fail("required");
+  if (nickname === normalizeNickname(String(current ?? ""))) return fail("same");
   return { ok: true, value: nickname, code: "", message: "" };
 }
 
-// 닉네임 저장. 성공하면 저장된 닉네임을 돌려주고, 실패하면 { message }가 있는 오류를 던진다.
-// TODO(닉네임 저장): js/api.js에 닉네임 변경 API(예: PATCH /api/auth/me { name })를 추가해 호출하고,
-//   성공하면 auth.js setUser로 헤더까지 갱신한다. API 명세(docs/api-spec.md)와 검증 규칙(NICKNAME_RULES)은 백엔드와 확정한다.
-export async function saveNickname(nickname) {
-  await new Promise((resolve) => setTimeout(resolve, 400)); // 저장 중 상태를 보이기 위한 mock 지연
-  return nickname;
+// 서버 오류를 모달 문구로 바꾼다. 닉네임 규칙 실패(400 + code)는 같은 문구표(NICKNAME_MESSAGES)를 쓰고,
+// 그 밖의 4xx는 서버 문구, 5xx·네트워크 오류는 기본 문구.
+export function nicknameErrorMessage(error) {
+  if (error?.code && Object.hasOwn(NICKNAME_MESSAGES, error.code)) return NICKNAME_MESSAGES[error.code];
+  if (error?.status >= 400 && error.status < 500 && error.message) return error.message;
+  return "닉네임을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
+}
+
+// 닉네임 저장 (PATCH /api/auth/me). 성공하면 갱신된 사용자({ id, name, email, provider })를 돌려준다.
+// 실패하면 화면에 보여 줄 문구(message)와 원래 status·code를 가진 오류를 던진다. mock은 api.js가 USE_MOCK일 때만 쓴다.
+export async function saveNickname(nickname, { update = updateNickname } = {}) {
+  try {
+    return await update(nickname);
+  } catch (error) {
+    throw Object.assign(new Error(nicknameErrorMessage(error)), { status: error?.status, code: error?.code });
+  }
 }
 
 // --- 로그인 제공자 ---
@@ -76,16 +93,12 @@ export function avatarInitial(name) {
 export const MAX_MYPAGE_FAVORITES = 3;
 export const MISSING_ADDRESS_TEXT = "주소 정보 없음";
 
-const MOCK_FAVORITES = [
-  { id: "mock-1", name: "집", type: "집", address: "경상남도 김해시 내외중앙로 47", lat: 35.2342, lng: 128.8811 },
-  { id: "mock-2", name: "동의대학교", type: "학교", address: "부산광역시 부산진구 엄광로 176", lat: 35.1441, lng: 129.0336 },
-  { id: "mock-3", name: "센텀시티 오피스", type: "회사", address: "부산광역시 해운대구 센텀중앙로 90", lat: 35.1691, lng: 129.1311 },
-  { id: "mock-4", name: "부산역", type: "기타", address: null, lat: 35.1151, lng: 129.0422 },
-];
-
-// TODO(즐겨찾기 조회): js/api.js의 getFavorites()(GET /api/favorites)로 바꾼다. 응답 형식은 같다 ({ id, name, type, address, lat, lng }).
-export async function loadFavorites() {
-  return MOCK_FAVORITES.map((place) => ({ ...place }));
+// 즐겨찾기 (api.js getFavorites → GET /api/favorites, USE_MOCK이면 api.js의 mock 저장소).
+// [{ id, name, type, address, lat, lng }], 추가한 순서(오래된 것이 먼저). 화면은 이 순서 그대로 앞 3개를 쓴다 (pickFavorites).
+// 실패하면 그대로 던진다. 화면(sectionLoader)이 섹션 오류와 다시 시도를 보여 준다.
+export async function loadFavorites({ fetchFavorites = getFavorites } = {}) {
+  const list = await fetchFavorites();
+  return Array.isArray(list) ? list : [];
 }
 
 function isCoordinate(value, limit) {
@@ -175,25 +188,23 @@ export function weeklySummary(stats = {}, now = new Date()) {
   return { series, total, topPlace, heights: barHeights(series), period: periodLabel(series), empty: total === 0 };
 }
 
-// mock: 오늘 기준 최근 7일 (날짜는 실행 시점에 만든다). 마지막 값이 오늘이다.
-const MOCK_WEEKLY_COUNTS = [4, 7, 5, 9, 6, 11, 8];
-
-// 기존 통계 화면처럼 USE_MOCK_STATS로 mock과 실제를 나눈다 (stats.js → api.getStats와 같은 기준).
-// TODO(통계 API): 사용자별 주간 통계 API(예: GET /api/me/stats?days=7 → { daily: [{ date, count }], topPlace })를
-//   js/api.js에 추가하고 USE_MOCK_STATS가 false일 때 그것을 호출한다. "가장 많이 간 곳"의 기준(목적지 이름)도 함께 확정한다.
-export async function loadWeeklyStats(now = new Date()) {
-  if (!USE_MOCK_STATS) throw Object.assign(new Error("이용 통계는 아직 서버와 연결되지 않았어요."), { status: 501 });
+// 내 이용 통계 (api.js getMyStats → GET /api/stats/me?range=week. mock은 USE_MOCK=true일 때만, api.js 안에서).
+// weeklySummary가 쓰는 { daily: [{ date, count }], topPlace }로 맞춘다. 막대·합계는 daily로 다시 센다(weeklySummary).
+// 실패하면 그대로 던진다. 화면(sectionLoader)이 섹션 오류와 다시 시도를 보여 준다.
+export async function loadWeeklyStats(now = new Date(), { fetchStats = getMyStats } = {}) {
+  const stats = await fetchStats(now);
   return {
-    daily: lastSevenDays(now).map((day, index) => ({ date: day.date, count: MOCK_WEEKLY_COUNTS[index] })),
-    topPlace: "동의대학교",
+    daily: Array.isArray(stats?.daily) ? stats.daily : [],
+    topPlace: typeof stats?.topPlace === "string" ? stats.topPlace : null,
   };
 }
 
 // --- 즐겨찾기 카드 클릭 ---
 
-// TODO(즐겨찾기 → 길찾기): 길찾기 화면에 이 장소를 목적지로 넘긴다 (예: /pages/search.html?to=…&toLat=…&toLng=…&toAddress=…).
-//   search.js의 쿼리 복원(queryCoordinates·placeAddress)과 같은 규칙으로 만든다. 다음 작업에서 연결한다.
-export function openFavoriteInSearch(place, { notify } = {}) {
-  notify?.(`${place.name}: 길찾기 연결은 준비 중이에요.`);
-  return null;
+// 길찾기 화면으로 가서 이 장소를 목적지로 채운다 (links.js buildSearchUrl: to, toLat, toLng, toAddress).
+// 좌표가 있으면 목적지가 선택 완료 상태로 들어가고, 없으면 이름만 들어가 자동완성에서 다시 고른다. 이동한 주소를 돌려준다.
+export function openFavoriteInSearch(place, { navigate = (url) => location.assign(url) } = {}) {
+  const url = buildSearchUrl({ to: { name: place?.name, lat: place?.lat, lng: place?.lng, address: place?.address } });
+  navigate(url);
+  return url;
 }

@@ -2,6 +2,7 @@
 
 LIMIT_INVALID = "개수는 1~50 사이의 정수여야 합니다."
 NOT_FOUND = "찾을 수 없습니다."
+RANGE_INVALID = "기간(range)은 week만 지원합니다."
 STORE_UNAVAILABLE = "검색 기록을 지금 사용할 수 없습니다. 잠시 후 다시 시도해 주세요."
 
 

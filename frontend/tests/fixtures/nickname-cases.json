@@ -1,0 +1,275 @@
+{
+ "_comment": "닉네임 규칙 공용 사례. backend/tests/test_nickname.py와 frontend/tests/mypage.test.mjs가 함께 읽어 서버·프론트 결과가 같은지 확인한다. 이 파일은 사람이 직접 고쳐도 된다.",
+ "cases": [
+  {
+   "input": "길잇_01",
+   "ok": true,
+   "value": "길잇_01"
+  },
+  {
+   "input": "Gil-it",
+   "ok": true,
+   "value": "Gil-it"
+  },
+  {
+   "input": "길잇!",
+   "ok": true,
+   "value": "길잇!"
+  },
+  {
+   "input": "#길잇",
+   "ok": true,
+   "value": "#길잇"
+  },
+  {
+   "input": "a b",
+   "ok": true,
+   "value": "a b"
+  },
+  {
+   "input": "길잇 사용자",
+   "ok": true,
+   "value": "길잇 사용자"
+  },
+  {
+   "input": "가나",
+   "ok": true,
+   "value": "가나"
+  },
+  {
+   "input": "ab",
+   "ok": true,
+   "value": "ab"
+  },
+  {
+   "input": "12",
+   "ok": true,
+   "value": "12"
+  },
+  {
+   "input": "AbCdEf09",
+   "ok": true,
+   "value": "AbCdEf09"
+  },
+  {
+   "input": "가가가가가가가가가가가가가가가가가가가가",
+   "ok": true,
+   "value": "가가가가가가가가가가가가가가가가가가가가"
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaa",
+   "ok": true,
+   "value": "aaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "input": "길잇 - 01_!#",
+   "ok": true,
+   "value": "길잇 - 01_!#"
+  },
+  {
+   "input": "  길잇러  ",
+   "ok": true,
+   "value": "길잇러"
+  },
+  {
+   "input": "\t 길잇 \n",
+   "ok": true,
+   "value": "길잇"
+  },
+  {
+   "input": "\u3000길잇\u3000",
+   "ok": true,
+   "value": "길잇"
+  },
+  {
+   "input": "\ufeff길잇",
+   "ok": true,
+   "value": "길잇"
+  },
+  {
+   "input": "\u00a0길잇\u00a0",
+   "ok": true,
+   "value": "길잇"
+  },
+  {
+   "input": "\u1100\u1175\u11af\u110b\u1175\u11ba",
+   "ok": true,
+   "value": "길잇"
+  },
+  {
+   "input": " aaaaaaaaaaaaaaaaaaaa ",
+   "ok": true,
+   "value": "aaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "input": "",
+   "ok": false,
+   "code": "empty"
+  },
+  {
+   "input": "   ",
+   "ok": false,
+   "code": "empty"
+  },
+  {
+   "input": "\t",
+   "ok": false,
+   "code": "empty"
+  },
+  {
+   "input": "\n\u3000",
+   "ok": false,
+   "code": "empty"
+  },
+  {
+   "input": "길잇.",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길잇@",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "a/b",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "<b>",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "a&b",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "a'b",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "a\"b",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길잇😀",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "😀😀",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "ㅋㅋ",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길ㅏ",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길\t잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길\n잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길\u3000잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길\u00a0잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "ａｂ",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길\u200b잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "\u001c길잇",
+   "ok": false,
+   "code": "chars"
+  },
+  {
+   "input": "길  잇",
+   "ok": false,
+   "code": "spaces"
+  },
+  {
+   "input": "a   b",
+   "ok": false,
+   "code": "spaces"
+  },
+  {
+   "input": "가",
+   "ok": false,
+   "code": "length"
+  },
+  {
+   "input": "a",
+   "ok": false,
+   "code": "length"
+  },
+  {
+   "input": "1",
+   "ok": false,
+   "code": "length"
+  },
+  {
+   "input": "가가가가가가가가가가가가가가가가가가가가가",
+   "ok": false,
+   "code": "length"
+  },
+  {
+   "input": "aaaaaaaaaaaaaaaaaaaaa",
+   "ok": false,
+   "code": "length"
+  },
+  {
+   "input": "--",
+   "ok": false,
+   "code": "required"
+  },
+  {
+   "input": "!!",
+   "ok": false,
+   "code": "required"
+  },
+  {
+   "input": "##",
+   "ok": false,
+   "code": "required"
+  },
+  {
+   "input": "- _",
+   "ok": false,
+   "code": "required"
+  },
+  {
+   "input": "-_!#",
+   "ok": false,
+   "code": "required"
+  }
+ ]
+}

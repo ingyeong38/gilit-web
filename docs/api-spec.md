@@ -15,6 +15,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | POST | `/api/auth/login` | 이메일 로그인 (**구현됨**) | 불필요 | `loginWithEmail` | localStorage |
 | POST | `/api/auth/logout` | 로그아웃 (**구현됨**) | 불필요 | `logoutSession` | 호출 안 함 |
 | GET | `/api/auth/me` | 내 정보 (**구현됨**) | **필요** | `getSessionUser` | sessionStorage (`gilit:mock:session`) |
+| PATCH | `/api/auth/me` | 닉네임 변경 (**구현됨**) | **필요** | `updateNickname` | localStorage (`gilit:mock:users`) |
 | GET | `/api/auth/{google\|kakao}/start` | 소셜 로그인 시작, 제공자 화면으로 302 (**구현됨**) | 불필요 | `getSocialLoginUrl` (페이지 이동) | 없음 |
 | GET | `/api/auth/{google\|kakao}/callback` | 소셜 로그인 콜백, 프론트로 302 (**구현됨**) | 불필요 | 제공자가 부름 | 없음 |
 | GET | `/api/favorites` | 즐겨찾기 목록 (**구현됨**) | **필요** | `getFavorites` | `favorites.json` |
@@ -25,6 +26,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | DELETE | `/api/history?id=` | 검색 기록 카드 한 장 삭제 (**구현됨**) | **필요** | 없음 | - |
 | DELETE | `/api/history` | 내 검색 기록 전체 삭제 (**구현됨**) | **필요** | 없음 | - |
 | GET | `/api/stats` | 이용 통계 | **필요** | `getStats` | `stats.json` |
+| GET | `/api/stats/me?range=week` | 내 이용 통계, 마이페이지 (**구현됨**) | **필요** | `getMyStats` | `api.js` 안의 mock (`USE_MOCK`일 때만, `USE_MOCK_STATS`와 무관) |
 | POST | `/api/visit` | 방문 로그 기록 | 불필요 | 없음 | - |
 | GET | `/health` | 서버 상태 확인 (**구현됨**) | 불필요 | - | - |
 
@@ -488,6 +490,52 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 오류: `401` "로그인이 필요합니다." (세션 없음, 만료, 모르는 토큰 모두)
 
+### PATCH /api/auth/me (닉네임 변경)
+
+로그인: **필요**. 구현: `backend/app/api/auth.py`, 규칙: `backend/app/auth/nickname.py` (프론트 `frontend/js/mypage.js`와 같은 규칙)
+
+요청:
+
+```json
+{ "name": "길잇_01" }
+```
+
+응답: `200` + 갱신된 사용자 객체 (`provider`는 이번 세션의 로그인 방식 그대로)
+
+```json
+{ "id": "1", "name": "길잇_01", "email": "user@example.com", "provider": "google" }
+```
+
+규칙 (서버와 프론트가 같은 문장을 주석으로 둔다)
+
+- NFC 정규화 후 앞뒤 공백 제거, 길이 2~20자(글자 수 기준)
+- 허용 문자: 한글 완성형(가-힣), 영문(A-Za-z), 숫자(0-9), 공백(스페이스), 특수문자 - _ ! # 만
+- 한글·영문·숫자 중 최소 1자 포함, 연속 공백 불허
+- 불허: 그 외 문자, 이모지, 한글 자모 단독, 탭·줄바꿈 등 스페이스 이외의 공백 문자
+- 중복 닉네임 허용
+- 규칙은 변경 요청 값에만 적용한다(기존 닉네임은 검사하지 않는다)
+
+동작
+
+- 저장하는 값은 정규화·앞뒤 공백 제거 뒤의 값이다. 앞뒤에서 지우는 문자는 JavaScript `String.prototype.trim()`과 같은 집합이다.
+- 현재 닉네임과 같은 값이면 저장하지 않고 `200` (현재 사용자 그대로).
+- 같은 사용자의 다른 세션에도 바로 반영된다 (`GET /api/auth/me`가 DB 값을 읽는다).
+- 소셜 로그인은 처음 가입할 때만 제공자 이름을 닉네임으로 쓴다. 다시 로그인해도 바꾼 닉네임을 덮어쓰지 않는다.
+
+오류: 규칙 위반은 `400` + `{ "message", "code" }`. 검사 순서는 아래 표의 위에서 아래다.
+
+| `code` | 언제 | `message` |
+| --- | --- | --- |
+| `empty` | 빈 값, 공백만, `name` 없음, 문자열이 아님 | 닉네임을 입력해 주세요. |
+| `chars` | 허용 문자 밖 (이모지, 자모 단독, `.` `@` 등, 탭·줄바꿈·전각 공백) | 사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요. |
+| `spaces` | 공백 두 칸 이상 연속 | 공백은 한 칸씩만 쓸 수 있어요. |
+| `length` | 2자 미만 또는 20자 초과 | 닉네임은 2~20자로 입력해 주세요. |
+| `required` | 한글·영문·숫자가 하나도 없음 (`--`, `!#` 등) | 한글, 영문, 숫자를 1자 이상 포함해 주세요. |
+
+그 밖의 오류: `400` "요청 본문은 JSON 객체여야 합니다.", `401` "로그인이 필요합니다.", `403` 허용되지 않은 출처.
+
+서버·프론트 결과가 같은지는 공용 사례 파일 `frontend/tests/fixtures/nickname-cases.json`을 `backend/tests/test_nickname.py`와 `frontend/tests/mypage.test.mjs`가 함께 읽어 확인한다.
+
 ### 소셜 로그인 (Google, 카카오)
 
 제공자는 `google`, `kakao` 두 가지다. 서버에 설정되지 않은 제공자는 `start`가 곧바로 `auth_result=failed`로 돌려보낸다. 그 밖의 이름(`naver` 등)은 `404`.
@@ -656,6 +704,46 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 ```
 
 계산: 방문자는 `visit_logs.session_id`의 서로 다른 값 개수, 검색 수는 `search_history` 행 수(로그인 사용자의 검색만, 지운 기록 제외), 인기 출발지·목적지는 `origin_name`·`dest_name`별 개수 상위 5개다. 방문이 없는 날은 `count: 0`으로 채운다. 쿼리 예시는 `db/README.md`에 있다.
+
+### GET /api/stats/me?range=week (내 이용 통계, 구현됨)
+
+로그인: **필요** (없으면 `401`). 마이페이지 "이용 통계"가 쓴다 (`getMyStats`). `USE_MOCK`(전체 mock 스위치)이 `true`일 때만 `api.js` 안의 mock을 쓰고, 그 밖에는 항상 이 API를 부른다. `USE_MOCK_STATS`는 통계 화면(`getStats`, `GET /api/stats`)에만 적용되고 이 API와는 무관하다.
+
+사이트 전체 통계(`GET /api/stats`, 통계 화면)와는 응답이 다른 **별도 경로**다. 로그인한 사용자 한 명의 검색 기록(`search_history`)만 센다. 새 표나 따로 보관하는 값은 없다.
+
+- `range`: `week`만 지원한다. 없으면 `week`. 그 밖의 값(빈 값, `WEEK`, `month` 등)은 `400` `{ "message": "기간(range)은 week만 지원합니다." }`
+
+```json
+{
+  "range": "week",
+  "from": "2026-11-13",
+  "to": "2026-11-19",
+  "daily": [
+    { "date": "2026-11-13", "count": 1 },
+    { "date": "2026-11-14", "count": 0 },
+    { "date": "2026-11-15", "count": 0 },
+    { "date": "2026-11-16", "count": 3 },
+    { "date": "2026-11-17", "count": 0 },
+    { "date": "2026-11-18", "count": 0 },
+    { "date": "2026-11-19", "count": 2 }
+  ],
+  "total": 6,
+  "topPlace": "동의대학교"
+}
+```
+
+집계 규칙
+- 기간: 오늘을 포함한 최근 7일. 한국 시간(KST) 날짜 기준으로 `오늘 -6일 0시 ~ 지금`. `from`은 첫날, `to`는 오늘이다
+- 기준 시각: `created_at`(검색한 시각, DB에 KST로 저장). 도착 희망 시각(`arrive_at`)이 아니다. 지금보다 뒤의 `created_at`은 세지 않는다
+- `daily`: 항상 7개, 오래된 날 → 오늘. 검색이 없는 날은 `count: 0`
+- `total`: 7일 합계 (`daily`의 `count` 합과 같다)
+- 횟수: 행 하나가 1회다. 검색 기록 화면의 "같은 검색" 묶기와 상관없다. 같은 검색을 5분 안에 다시 하면 기록 자체가 저장되지 않으므로 세지 않는다 ("자동 저장")
+- `topPlace`: 7일 안의 목적지 이름(`dest_name`) 기준 최다. 이름은 그대로 비교한다(대소문자·공백 구분). 동률이면 그중 가장 최근에 검색한 곳. 목적지 이름이 없는 행은 횟수에는 넣고 여기서는 뺀다. 셀 것이 없으면 `null`
+- 기록을 지우면(`DELETE /api/history`) 통계도 함께 줄어든다
+- 사용자당 기록은 최근 200행까지만 남으므로(`MAX_ATTACHED_ROWS`), 7일 동안 200회를 넘게 검색하면 오래된 검색은 세지 않는다
+- 날짜 묶기는 DB 시간대 함수가 아니라 서버 코드(`app/history/stats.py`)에서 한다
+
+오류: `400`(range), `401`, `503`(검색 기록 저장소를 쓸 수 없음)
 
 ## 방문 로그
 

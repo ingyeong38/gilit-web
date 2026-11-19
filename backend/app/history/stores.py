@@ -24,6 +24,10 @@ class HistoryStore(Protocol):
         """최신순으로, 같은 검색은 가장 최근 행 하나로 묶어 limit개까지."""
         ...
 
+    def list_created_between(self, user_id: int, start: datetime, end: datetime) -> list[HistoryEntry]:
+        """created_at이 start 이상 end 이하인 그 사용자의 행 (묶지 않은 행 그대로, 순서 없음). 이용 통계가 쓴다."""
+        ...
+
     def delete_one(self, user_id: int, entry_id: int) -> bool:
         """그 행과 같은 검색 묶음의 행을 모두 지운다 (화면의 카드 한 장). 없거나 남의 것·이미 지운 것이면 False."""
         ...
@@ -69,6 +73,10 @@ class MemoryHistoryStore:
     def list(self, user_id: int, limit: int) -> list[HistoryEntry]:
         with self._lock:
             return group_latest(self._attached(user_id), limit)
+
+    def list_created_between(self, user_id: int, start: datetime, end: datetime) -> list[HistoryEntry]:
+        with self._lock:
+            return [row for row in self._attached(user_id) if start <= row.created_at <= end]
 
     def delete_one(self, user_id: int, entry_id: int) -> bool:
         with self._lock:

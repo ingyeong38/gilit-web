@@ -148,7 +148,10 @@ async def handle_http_error(request: Request, error: StarletteHTTPException) -> 
 
 async def handle_auth_error(request: Request, error: AuthError) -> JSONResponse:
     # 인증 문구는 app/auth/errors.py에서 정한 사용자용 문장이다. 그대로 보낸다.
-    return JSONResponse(status_code=error.status, content={"message": error.message}, headers=error.headers)
+    content = {"message": error.message}
+    if error.code:
+        content["code"] = error.code  # 닉네임 검증 실패 코드 (app/auth/nickname.py)
+    return JSONResponse(status_code=error.status, content=content, headers=error.headers)
 
 
 async def handle_favorite_error(request: Request, error: FavoriteError) -> JSONResponse:

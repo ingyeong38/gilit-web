@@ -11,10 +11,12 @@ const MOCK_USERS_KEY = "gilit:mock:users";
 const LOGIN_FAILED = "이메일 또는 비밀번호가 올바르지 않습니다.";
 
 // 서버가 { "message": "..." }로 보낸 오류 문구를 화면에 그대로 보여 줄 수 있게 담는다.
+// code는 서버가 함께 보낸 실패 코드다 (예: 닉네임 검증 "chars"). 없으면 undefined.
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -30,7 +32,8 @@ async function requestJson(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new ApiError(body?.message || `요청 실패: ${url} (${response.status})`, response.status);
+    throw new ApiError(body?.message || `요청 실패: ${url} (${response.status})`, response.status,
+      typeof body?.code === "string" ? body.code : undefined);
   }
   return response.status === 204 ? null : response.json();
 }
@@ -170,6 +173,27 @@ export async function getStats() {
   };
 }
 
+// 내 이용 통계 (GET /api/stats/me?range=week, docs/api-spec.md "내 이용 통계"). 마이페이지가 쓴다.
+// 응답: { range, from, to, daily: [{ date: "YYYY-MM-DD", count }] 7개(오래된 날 → 오늘, KST), total, topPlace(없으면 null) }
+// mock을 돌려주는 유일한 조건은 USE_MOCK(전체 mock 스위치)이 true일 때다. 그 밖에는 항상 실제 API를 부른다.
+// USE_MOCK_STATS는 보지 않는다. 그 값은 사이트 전체 통계(getStats, GET /api/stats, 통계 화면)에만 쓴다.
+// now는 mock 날짜에만 쓴다.
+const MOCK_WEEKLY_COUNTS = [4, 7, 5, 9, 6, 11, 8];
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function getMyStats(now = new Date()) {
+  if (!USE_MOCK) return requestJson(buildUrl("/stats/me", { range: "week" }), { cache: "no-store" });
+
+  // mock: 오늘(KST) 기준 최근 7일. 마지막 값이 오늘이다.
+  const daily = MOCK_WEEKLY_COUNTS.map((count, index) => ({
+    date: new Date(now.getTime() + KST_OFFSET_MS - (6 - index) * DAY_MS).toISOString().slice(0, 10),
+    count,
+  }));
+  const total = daily.reduce((sum, day) => sum + day.count, 0);
+  return { range: "week", from: daily[0].date, to: daily.at(-1).date, daily, total, topPlace: "동의대학교" };
+}
+
 // mock 계정은 이 브라우저의 localStorage에만 있다. 비밀번호는 평문 대신 SHA-256 값으로 둔다.
 // 실제 서버는 bcrypt로 해시한다 (docs/api-spec.md).
 function readMockUsers() {
@@ -217,6 +241,25 @@ export async function logoutSession() {
 // 인증은 실제 서버 세션으로만 확인한다. 소셜 인증 mock은 제공하지 않는다.
 export function getSessionUser() {
   return requestJson(buildUrl("/auth/me"));
+}
+
+// 닉네임 변경 (PATCH /api/auth/me { name }). 갱신된 사용자({ id, name, email, provider })를 돌려준다.
+// 규칙 위반은 400 + { message, code }다 (docs/api-spec.md "닉네임 변경"). 화면은 code로 문구를 고른다.
+export async function updateNickname(name) {
+  if (!USE_MOCK) {
+    return requestJson(buildUrl("/auth/me"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  }
+  // mock: 이 브라우저의 mock 계정 목록에 저장한다. 검증은 화면(mypage.js validateNickname)이 이미 했다.
+  const current = getUser();
+  if (!current) throw new ApiError("로그인이 필요합니다.", 401);
+  const nickname = String(name).normalize("NFC").trim();
+  const users = readMockUsers().map((user) => (user.id === current.id ? { ...user, name: nickname } : user));
+  localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
+  return { ...current, name: nickname };
 }
 
 export function getSocialLoginUrl(provider) {

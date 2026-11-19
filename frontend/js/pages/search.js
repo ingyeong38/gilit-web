@@ -3,6 +3,7 @@ import { setupAutocomplete } from "/js/components/placeAutocomplete.js";
 import { getFavorites, getHistory } from "/js/api.js";
 import { getUser, initializeAuth, isRedirecting, onAuthChange, recheckAuth } from "/js/auth.js";
 import { icon, renderIcons } from "/js/components/icon.js";
+import { readPlaceParams } from "/js/links.js";
 import { showToast } from "/js/components/toast.js";
 import {
   buildResultUrl,
@@ -32,6 +33,10 @@ const timeInput = form.elements.time;
 const submitButton = document.getElementById("search-submit");
 const bufferButtons = document.querySelectorAll("[data-buffer]");
 
+// 쿼리의 목적지 (to, toLat, toLng, toAddress. 즐겨찾기 카드, "조건 수정"). 값이 하나라도 틀리면 null이고 목적지를 채우지 않는다.
+// 좌표가 있으면 자동완성에서 고른 것과 같은 선택값({ name, lat, lng, address? })으로 채운다 (아래 setPlace).
+const destination = readPlaceParams(new URLSearchParams(location.search), "to");
+
 let buffer = DEFAULT_BUFFER;
 let submitting = false;
 let navigationTimer;
@@ -59,7 +64,7 @@ function setLoading(loading) {
 function fillForm() {
   const query = new URLSearchParams(location.search);
   fromInput.value = query.get("from") ?? "";
-  toInput.value = query.get("to") ?? "";
+  toInput.value = destination?.name ?? "";
   const time = query.get("time");
   timeInput.value = isValidTime(time) ? time : DEFAULT_TIME;
   const date = query.get("date");
@@ -187,16 +192,15 @@ fillForm();
 setLoading(false);
 autocompletes.push(setupAutocomplete(fromInput), setupAutocomplete(toInput));
 const restoredQuery = new URLSearchParams(location.search);
-// 쿼리 좌표(조건 수정, 즐겨찾기 "여기서 출발")를 선택된 장소로 복원한다. 범위 밖·숫자 아님은 무시한다.
+// 쿼리 좌표(조건 수정, 즐겨찾기 "여기서 출발"·카드)를 선택된 장소로 복원한다. 범위 밖·숫자 아님은 무시한다.
 // 입력칸을 고치면 자동완성이 선택을 풀고(getPlace는 이름이 같을 때만 돌려준다) 이전 좌표로 조회하지 않는다.
-["from", "to"].forEach((prefix, index) => {
-  const coordinate = queryCoordinates(restoredQuery, prefix);
-  if (coordinate) {
-    // "조건 수정"으로 돌아왔을 때 목적지 주소도 되살려 다시 제출할 때 잃지 않게 한다.
-    const address = prefix === "to" ? placeAddress(restoredQuery.get("toAddress")) : null;
-    autocompletes[index].setPlace({ name: form.elements[prefix].value, ...coordinate, ...(address ? { address } : {}) });
-  }
-});
+const origin = queryCoordinates(restoredQuery, "from");
+if (origin) autocompletes[0].setPlace({ name: fromInput.value, ...origin });
+// 목적지: 좌표까지 올바르면 선택 완료 상태. 주소도 되살려 결과 화면의 별 저장이 쓰게 한다. 이름만 있으면 입력칸만 채운다.
+if (destination?.lat !== undefined) {
+  const { name, lat, lng, address } = destination;
+  autocompletes[1].setPlace({ name, lat, lng, ...(address ? { address } : {}) });
+}
 if (USE_MOCK) {
   document.getElementById("place-search-hint").textContent = "예시 장소 검색: 김해·부산의 제공된 예시 장소에서 이름과 주소를 검색합니다. 장소명 직접 입력도 가능해요.";
 }

@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 const plain = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];/mg, '').replace(/export /g, '');
 const utils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
 vm.runInContext(plain(await read('../js/utils.js')), utils);
+vm.runInContext(plain(await read('../js/links.js')), utils); // 화면 스크립트가 쓰는 links.js 함수도 같은 컨텍스트에
 const now = new Date('2026-11-06T14:59:30Z'); // 한국 23:59:30
 const valid = { from: '김해시청', to: '동의대학교', date: '2026-11-07', time: '00:00', buffer: '10' };
 assert.equal(utils.validateSearchConditions(valid, now), null);
@@ -177,13 +178,19 @@ assert.equal(sent.get('toAddress').length, 255);
 sent = await submitWith(null); // 자동완성으로 고르지 않음
 assert.equal(sent.has('toAddress'), false);
 
-// "조건 수정"으로 돌아오면 쿼리의 toAddress를 목적지 선택값에 되살린다 (잘못된 값은 버린다)
-for (const [address, expected] of [['부산 부산진구 엄광로 176', '부산 부산진구 엄광로 176'], ['x'.repeat(256), undefined]]) {
+// "조건 수정"으로 돌아오면 쿼리의 toAddress를 목적지 선택값에 되살린다.
+// 목적지 값(to, toLat, toLng, toAddress) 중 하나라도 틀리면 목적지 전체를 채우지 않는다 (links.js readPlaceParams)
+for (const [address, expected] of [['부산 부산진구 엄광로 176', '부산 부산진구 엄광로 176'], ['x'.repeat(256), null]]) {
   const restoreStubs = [];
   const query = new URLSearchParams({ ...valid, toLat: '35.1441', toLng: '129.0336', toAddress: address });
   const restoreContext = vm.createContext({ ...pageContext, location: { search: '?' + query, assign() {} },
     setupAutocomplete: () => { let place = null; const stub = { close() {}, getPlace() { return place; }, setPlace(value) { place = value; } }; restoreStubs.push(stub); return stub; } });
   vm.runInContext(plain(await read('../js/pages/search.js')), restoreContext);
+  if (expected === null) {
+    assert.equal(restoreStubs[1].getPlace(), null, '잘못된 주소 → 목적지 선택값 없음');
+    assert.equal(form.elements.to.value, '', '잘못된 주소 → 목적지 입력칸도 비운다');
+    continue;
+  }
   assert.equal(restoreStubs[1].getPlace().address, expected);
   assert.equal(restoreStubs[1].getPlace().lat, 35.1441);
 }
@@ -240,6 +247,37 @@ for (const bad of [{ fromLat: '91', fromLng: '128' }, { fromLat: '35', fromLng: 
   assert.equal(page.stubs[0].raw, null, JSON.stringify(bad));
   assert.equal((await page.submit()).has('fromLat'), false);
 }
+// 마이페이지 즐겨찾기 카드(links.js buildSearchUrl)로 들어온 경우: 목적지가 선택 완료 상태(좌표·주소)로 채워지고,
+// 출발지를 입력해 검색하면 결과 화면에 toLat·toLng·toAddress가 그대로 실린다. 출발지는 비어 있다(기존 입력 그대로).
+{
+  const cardUrl = utils.buildSearchUrl({ to: { name: '동의대학교', lat: 35.1441, lng: 129.0336, address: '부산광역시 부산진구 엄광로 176' } });
+  const page = openSearchPage(Object.fromEntries(new URL(cardUrl, 'http://localhost').searchParams));
+  assert.equal(form.elements.to.value, '동의대학교');
+  assert.equal(form.elements.from.value, '', '출발지는 채우지 않는다');
+  assert.deepEqual({ ...page.stubs[1].raw }, { name: '동의대학교', lat: 35.1441, lng: 129.0336, address: '부산광역시 부산진구 엄광로 176' }, '자동완성 선택과 같은 값 형태');
+  assert.equal(page.stubs[0].raw, null);
+  const sent = await page.submit({ from: '김해시청' });
+  assert.deepEqual([sent.get('from'), sent.get('to'), sent.get('toLat'), sent.get('toLng'), sent.get('toAddress')],
+    ['김해시청', '동의대학교', '35.1441', '129.0336', '부산광역시 부산진구 엄광로 176']);
+  // 목적지를 고치면 선택이 풀려 이전 좌표로 조회하지 않는다 (기존 규칙 그대로)
+  const edited = await page.submit({ from: '김해시청', to: '부산역' });
+  assert.equal(edited.has('toLat') || edited.has('toAddress'), false);
+}
+// 목적지 값이 하나라도 틀리면 목적지를 채우지 않는다 (입력칸·선택값 모두 비움, 화면은 그대로 동작)
+for (const bad of [{ to: '집', toLat: '91', toLng: '128' }, { to: '집', toLat: '35' }, { to: '집', toLat: 'abc', toLng: '128' },
+  { to: '가'.repeat(101), toLat: '35', toLng: '128' }, { to: '집', toAddress: '주소만' }, { to: '', toLat: '35', toLng: '128' },
+  { to: '집', toLat: '3.5e1', toLng: '128' }]) {
+  const page = openSearchPage(bad);
+  assert.equal(form.elements.to.value, '', JSON.stringify(bad).slice(0, 60));
+  assert.equal(page.stubs[1].raw, null);
+}
+// 스크립트 문자열 목적지는 입력칸 value에 글자 그대로 들어간다 (innerHTML 아님)
+{
+  const page = openSearchPage({ to: '<img src=x onerror=alert(1)>', toLat: '35.1', toLng: '129.1' });
+  assert.equal(form.elements.to.value, '<img src=x onerror=alert(1)>');
+  assert.equal(page.stubs[1].raw.name, '<img src=x onerror=alert(1)>');
+}
+console.log('PASS: 즐겨찾기 카드 → 길찾기 목적지 선택 완료 상태(좌표·주소)·출발지 입력 후 검색, 잘못된 목적지 파라미터 무시, 스크립트 문자열은 value로만');
 // 검색 화면의 빠른 장소(즐겨찾기) 버튼: 좌표를 출발지 선택값으로 넣는다. 좌표 없는 즐겨찾기는 이전 선택을 비운다
 {
   const page = openSearchPage({});
