@@ -30,7 +30,7 @@ function renderAccount(user) {
       ${icon("chevron", { size: 16 })}
     </button>
     <div class="profile-menu" hidden>
-      <button type="button">${icon("user", { size: 17 })} 내 정보</button>
+      <a href="/pages/mypage.html"${globalThis.location?.pathname === "/pages/mypage.html" ? ' aria-current="page"' : ""}>${icon("user", { size: 17 })} 내 정보</a>
       <button type="button" data-action="logout">${icon("logout", { size: 17 })} 로그아웃</button>
     </div>
   `;

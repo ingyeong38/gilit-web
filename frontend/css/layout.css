@@ -13,8 +13,8 @@
 .profile-button { border: 0; background: transparent; display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .avatar { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: var(--navy); color: var(--white); }
 .profile-menu { position: absolute; top: 48px; right: 0; width: 160px; padding: 7px; background: var(--white); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-hover); }
-.profile-menu button { width: 100%; border: 0; background: none; display: flex; gap: 10px; align-items: center; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
-.profile-menu button:hover { background: var(--surface); }
+.profile-menu button, .profile-menu a { width: 100%; border: 0; background: none; display: flex; gap: 10px; align-items: center; padding: 10px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+.profile-menu button:hover, .profile-menu a:hover, .profile-menu a[aria-current="page"] { background: var(--surface); }
 .page-transition { animation: enter .35s ease both; }
 @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .page-shell { max-width: 1120px; margin: auto; }

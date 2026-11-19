@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>마이페이지 | 길잇</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/pages/mypage.css?v=mypage-20261119-4" />
+</head>
+<body class="page-mypage">
+  <div class="app">
+    <header class="header" id="site-header"></header>
+    <div class="page-transition" data-auth-content hidden>
+      <main class="my-page">
+        <div class="my-page-shell">
+          <div class="my-page-heading">
+            <div>
+              <span class="my-page-kicker">MY PAGE</span>
+              <h1 class="page-title" id="mypage-greeting">안녕하세요</h1>
+              <p>내 정보와 자주 가는 장소, 이용 현황을 한눈에 확인하세요.</p>
+            </div>
+          </div>
+
+          <section class="my-section profile-section" aria-labelledby="section-profile-title">
+            <div class="my-section-head">
+              <div><span class="section-number" aria-hidden="true">01</span><div><h2 class="list-title" id="section-profile-title">닉네임 변경</h2><p>서비스에서 사용할 이름을 관리하세요.</p></div></div>
+            </div>
+            <div class="profile-edit-row" id="mypage-profile"></div>
+          </section>
+
+          <section class="my-section" aria-labelledby="section-favorites-title">
+            <div class="my-section-head">
+              <div><span class="section-number" aria-hidden="true">02</span><div><h2 class="list-title" id="section-favorites-title">즐겨찾기 목록</h2><p>자주 찾는 장소를 바로 확인하고 길찾기를 시작하세요.</p></div></div>
+              <!-- TODO(전체 관리 탭): 즐겨찾기 탭을 지정하는 파라미터(예: ?tab=favorites)는 다음 작업에서 붙인다. -->
+              <a class="section-link" href="/pages/favorites.html">전체 관리 <i data-icon="arrow" data-size="15"></i></a>
+            </div>
+            <div class="my-section-body" id="mypage-favorites" aria-live="polite"></div>
+          </section>
+
+          <section class="my-section usage-section" aria-labelledby="section-stats-title">
+            <div class="my-section-head">
+              <div><span class="section-number" aria-hidden="true">03</span><div><h2 class="list-title" id="section-stats-title">이용 통계</h2><p>최근 7일 동안의 나의 길잇 이용 기록이에요.</p></div></div>
+              <span class="my-period"><i data-icon="calendar" data-size="15"></i> <span id="mypage-period">최근 7일</span></span>
+            </div>
+            <div class="my-section-body" id="mypage-stats" aria-live="polite"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/js/components/header.js"></script>
+  <script type="module" src="/js/pages/mypage.js?v=mypage-20261119-4"></script>
+</body>
+</html>
