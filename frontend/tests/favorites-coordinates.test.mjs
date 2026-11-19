@@ -11,6 +11,7 @@ const json = (value) => JSON.parse(JSON.stringify(value));
 
 const utils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
 vm.runInContext(plain(await read('../js/utils.js')), utils);
+vm.runInContext(plain(await read('../js/links.js')), utils); // 화면 스크립트가 쓰는 links.js 함수도 같은 컨텍스트에
 
 // --- 1. 기록 좌표 고르기 (utils.historyCoordinates)
 {

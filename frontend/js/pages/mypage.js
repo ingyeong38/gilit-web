@@ -20,7 +20,7 @@ import {
   saveNickname,
   validateNickname,
   weeklySummary,
-} from "/js/mypage.js?v=mypage-20261119-7";
+} from "/js/mypage.js?v=mypage-20261119-8";
 
 const PLACE_ICONS = { 집: "home", 회사: "wallet", 학교: "star" };
 
@@ -195,7 +195,7 @@ function renderFavorites(list) {
       ${icon("arrow", { size: 17 })}
     </button></li>`).join("")}</ul>`;
   favoritesBox.querySelectorAll(".my-favorite-card").forEach((card, index) => {
-    card.addEventListener("click", () => openFavoriteInSearch(places[index], { notify: (message) => showToast(message) }));
+    card.addEventListener("click", () => openFavoriteInSearch(places[index]));
   });
 }
 

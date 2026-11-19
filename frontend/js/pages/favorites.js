@@ -4,6 +4,7 @@ import { openAddPlaceModal } from "/js/components/addPlaceModal.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { showToast } from "/js/components/toast.js";
 import { requirePageAccess } from "/js/guard.js";
+import { savedTabFromQuery } from "/js/links.js";
 import {
   buildResultUrl,
   dateOf,
@@ -22,7 +23,8 @@ const addButton = document.getElementById("add-place-button");
 const newSearchLink = document.getElementById("new-search-link");
 const tabButtons = document.querySelectorAll("[data-tab]");
 
-let tab = new URLSearchParams(location.search).get("tab") === "history" ? "history" : "favorites";
+// ?tab=favorites | history. 그 밖의 값은 무시하고 기본 탭(즐겨찾기)
+let tab = savedTabFromQuery(location.search);
 let generation = 0;
 let favorites = [];
 let history = [];

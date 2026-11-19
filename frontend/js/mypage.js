@@ -1,6 +1,7 @@
 // 마이페이지의 데이터와 계산. 화면 연결은 js/pages/mypage.js가 한다.
 // 닉네임 저장은 서버(PATCH /api/auth/me)와 연결돼 있다. 나머지 서버 연결 지점은 아래 TODO에 있다 (서버 호출은 js/api.js에만 둔다).
-import { getMyStats, updateNickname } from "/js/api.js";
+import { getFavorites, getMyStats, updateNickname } from "/js/api.js";
+import { buildSearchUrl } from "/js/links.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -92,16 +93,12 @@ export function avatarInitial(name) {
 export const MAX_MYPAGE_FAVORITES = 3;
 export const MISSING_ADDRESS_TEXT = "주소 정보 없음";
 
-const MOCK_FAVORITES = [
-  { id: "mock-1", name: "집", type: "집", address: "경상남도 김해시 내외중앙로 47", lat: 35.2342, lng: 128.8811 },
-  { id: "mock-2", name: "동의대학교", type: "학교", address: "부산광역시 부산진구 엄광로 176", lat: 35.1441, lng: 129.0336 },
-  { id: "mock-3", name: "센텀시티 오피스", type: "회사", address: "부산광역시 해운대구 센텀중앙로 90", lat: 35.1691, lng: 129.1311 },
-  { id: "mock-4", name: "부산역", type: "기타", address: null, lat: 35.1151, lng: 129.0422 },
-];
-
-// TODO(즐겨찾기 조회): js/api.js의 getFavorites()(GET /api/favorites)로 바꾼다. 응답 형식은 같다 ({ id, name, type, address, lat, lng }).
-export async function loadFavorites() {
-  return MOCK_FAVORITES.map((place) => ({ ...place }));
+// 즐겨찾기 (api.js getFavorites → GET /api/favorites, USE_MOCK이면 api.js의 mock 저장소).
+// [{ id, name, type, address, lat, lng }], 추가한 순서(오래된 것이 먼저). 화면은 이 순서 그대로 앞 3개를 쓴다 (pickFavorites).
+// 실패하면 그대로 던진다. 화면(sectionLoader)이 섹션 오류와 다시 시도를 보여 준다.
+export async function loadFavorites({ fetchFavorites = getFavorites } = {}) {
+  const list = await fetchFavorites();
+  return Array.isArray(list) ? list : [];
 }
 
 function isCoordinate(value, limit) {
@@ -204,9 +201,10 @@ export async function loadWeeklyStats(now = new Date(), { fetchStats = getMyStat
 
 // --- 즐겨찾기 카드 클릭 ---
 
-// TODO(즐겨찾기 → 길찾기): 길찾기 화면에 이 장소를 목적지로 넘긴다 (예: /pages/search.html?to=…&toLat=…&toLng=…&toAddress=…).
-//   search.js의 쿼리 복원(queryCoordinates·placeAddress)과 같은 규칙으로 만든다. 다음 작업에서 연결한다.
-export function openFavoriteInSearch(place, { notify } = {}) {
-  notify?.(`${place.name}: 길찾기 연결은 준비 중이에요.`);
-  return null;
+// 길찾기 화면으로 가서 이 장소를 목적지로 채운다 (links.js buildSearchUrl: to, toLat, toLng, toAddress).
+// 좌표가 있으면 목적지가 선택 완료 상태로 들어가고, 없으면 이름만 들어가 자동완성에서 다시 고른다. 이동한 주소를 돌려준다.
+export function openFavoriteInSearch(place, { navigate = (url) => location.assign(url) } = {}) {
+  const url = buildSearchUrl({ to: { name: place?.name, lat: place?.lat, lng: place?.lng, address: place?.address } });
+  navigate(url);
+  return url;
 }

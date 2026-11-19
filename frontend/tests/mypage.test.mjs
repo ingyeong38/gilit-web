@@ -8,10 +8,17 @@ const read = async (path) => (await readFile(new URL(path, import.meta.url), 'ut
 const plain = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];\n/gm, '').replace(/^export /gm, '');
 const json = (value) => JSON.parse(JSON.stringify(value));
 const source = plain(await read('../js/mypage.js'));
-// api.js 대역: getMyStats는 서버 응답 모양({ range, from, to, daily, total, topPlace })을 돌려준다
+// api.js 대역: getMyStats는 서버 응답 모양({ range, from, to, daily, total, topPlace })을, getFavorites는 즐겨찾기 목록을 돌려준다
+// links.js(buildSearchUrl)는 실제 모듈을 쓴다 (utils.js placeAddress와 함께)
+const linksCtx = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
+vm.runInContext(plain(await read('../js/utils.js')), linksCtx);
+vm.runInContext(plain(await read('../js/links.js')), linksCtx);
 const statsCalls = [];
+let favoritesReply = [];
 const load = () => {
-  const ctx = vm.createContext({ setTimeout, updateNickname: async (name) => ({ id: '1', name, email: null, provider: 'google' }),
+  const ctx = vm.createContext({ setTimeout, URLSearchParams, buildSearchUrl: linksCtx.buildSearchUrl,
+    getFavorites: async () => favoritesReply,
+    updateNickname: async (name) => ({ id: '1', name, email: null, provider: 'google' }),
     getMyStats: async (now) => { statsCalls.push(now); return { range: 'week', from: '2026-11-13', to: '2026-11-19', daily: [{ date: '2026-11-19', count: 3 }], total: 3, topPlace: '해운대' }; } });
   vm.runInContext(source, ctx);
   return ctx;
@@ -231,10 +238,20 @@ const days = (now) => json(m.lastSevenDays(now));
   // 실패는 그대로 던진다 (화면이 섹션 오류·다시 시도를 보여 준다)
   await assert.rejects(m.loadWeeklyStats(now, { fetchStats: async () => { throw Object.assign(new Error('로그인이 필요합니다.'), { status: 401 }); } }),
     (error) => error.status === 401);
-  const first = await m.loadFavorites();
-  first[0].name = '변경';
-  assert.notEqual((await m.loadFavorites())[0].name, '변경', '복사본을 돌려준다');
-  assert.ok((await m.loadFavorites()).some((p) => p.address === null), 'mock에 주소 없는 장소가 있다 (대체 문구 확인용)');
+  // 즐겨찾기: 기본은 api.js getFavorites. API 순서 그대로, 화면은 앞 3개 (주소 없는 항목은 대체 문구)
+  const favoriteRows = [
+    { id: '1', name: '집', type: '집', address: '경상남도 김해시 내외중앙로 47', lat: 35.2342, lng: 128.8811 },
+    { id: '2', name: '부산역', type: '기타', address: null, lat: 35.1151, lng: 129.0422 },
+    { id: '3', name: '동의대학교', type: '학교', address: '부산광역시 부산진구 엄광로 176', lat: 35.1441, lng: 129.0336 },
+    { id: '4', name: '네 번째', type: '회사', address: '부산', lat: 35.1, lng: 129.1 },
+  ];
+  favoritesReply = favoriteRows;
+  assert.deepEqual(json(await m.loadFavorites()), favoriteRows);
+  assert.deepEqual(json(m.pickFavorites(await m.loadFavorites())).map((p) => [p.id, p.addressText]),
+    [['1', '경상남도 김해시 내외중앙로 47'], ['2', '주소 정보 없음'], ['3', '부산광역시 부산진구 엄광로 176']], 'API 순서 그대로 최대 3개');
+  assert.deepEqual(json(await m.loadFavorites({ fetchFavorites: async () => [] })), [], '0개 → 빈 상태');
+  assert.deepEqual(json(await m.loadFavorites({ fetchFavorites: async () => null })), [], '모양이 어긋난 응답은 빈 목록');
+  await assert.rejects(m.loadFavorites({ fetchFavorites: async () => { throw Object.assign(new Error('x'), { status: 503 }); } }), (e) => e.status === 503, '실패는 섹션 오류로');
   // 닉네임 저장: api.js updateNickname(PATCH /api/auth/me)을 부르고 갱신된 사용자를 돌려준다. 오류는 모달 문구로 바꿔 던진다
   const sent = [];
   assert.deepEqual(json(await m.saveNickname('새이름', { update: async (name) => { sent.push(name); return { id: '7', name, email: null, provider: 'kakao' }; } })),
@@ -245,10 +262,19 @@ const days = (now) => json(m.lastSevenDays(now));
     (error) => error.message === '사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.' && error.code === 'chars' && error.status === 400);
   await assert.rejects(m.saveNickname('길잇', { update: async () => { throw Object.assign(new Error('로그인이 필요합니다.'), { status: 401 }); } }),
     (error) => error.message === '로그인이 필요합니다.' && error.status === 401);
-  let notified;
-  assert.equal(m.openFavoriteInSearch({ name: '집' }, { notify: (msg) => { notified = msg; } }), null);
-  assert.match(notified, /집/);
-  console.log('PASS: 통계 로더(서버 응답 매핑·빈 통계·실패 전달), 즐겨찾기 복사본, 저장·카드 클릭 TODO 동작');
+  // 카드 클릭: 길찾기 화면으로 목적지(to, toLat, toLng, toAddress)를 넘긴다
+  const visited = [];
+  const navigate = (url) => visited.push(url);
+  const card = json(m.pickFavorites(favoriteRows))[0];
+  const url = m.openFavoriteInSearch(card, { navigate });
+  assert.deepEqual(visited, [url]);
+  assert.equal(url, '/pages/search.html?to=%EC%A7%91&toLat=35.2342&toLng=128.8811&toAddress=%EA%B2%BD%EC%83%81%EB%82%A8%EB%8F%84+%EA%B9%80%ED%95%B4%EC%8B%9C+%EB%82%B4%EC%99%B8%EC%A4%91%EC%95%99%EB%A1%9C+47');
+  assert.deepEqual(json(linksCtx.readPlaceParams(new URL(url, 'https://gilit.test').searchParams, 'to')),
+    { name: '집', lat: 35.2342, lng: 128.8811, address: '경상남도 김해시 내외중앙로 47' }, '길찾기 화면이 읽는 값과 왕복');
+  // 주소 없는 카드: 주소 빼고 좌표만 (카드 모델의 address는 ""), 좌표 없는 카드: 이름만
+  assert.equal(m.openFavoriteInSearch(json(m.pickFavorites(favoriteRows))[1], { navigate }), '/pages/search.html?to=%EB%B6%80%EC%82%B0%EC%97%AD&toLat=35.1151&toLng=129.0422');
+  assert.equal(m.openFavoriteInSearch(json(m.favoriteCardModel({ name: '좌표 없음', lat: null, lng: null })), { navigate }), '/pages/search.html?to=%EC%A2%8C%ED%91%9C+%EC%97%86%EC%9D%8C');
+  console.log('PASS: 통계 로더(서버 응답 매핑·빈 통계·실패 전달), 즐겨찾기 로더(API 순서·최대 3개·빈 목록·실패), 저장, 카드 클릭 → 길찾기 목적지 주소');
 }
 
 // --- 연결: 보호 화면·복귀 주소·헤더 링크·HTML
@@ -273,10 +299,23 @@ const days = (now) => json(m.lastSevenDays(now));
   assert.match(page, /from "\/js\/mypage\.js\?v=mypage-\d{8}-\d+"/);
   // 캐시 버전: HTML의 CSS·JS와 페이지 스크립트의 import가 같은 값이고, 처음 값(-1)이 아니다
   const versions = new Set([...html.matchAll(/mypage\.(?:css|js)\?v=([\w-]+)"/g), ...page.matchAll(/mypage\.js\?v=([\w-]+)"/g)].map((match) => match[1]));
-  assert.deepEqual([...versions], ['mypage-20261119-7']);
+  assert.deepEqual([...versions], ['mypage-20261119-8']);
+  // 즐겨찾기: api.js getFavorites, 카드 클릭은 links.js buildSearchUrl로 이동. "준비 중" 토스트·TODO·mypage 안의 mock 목록은 없다
+  {
+    const pureSource = await read('../js/mypage.js');
+    assert.match(pureSource, /import \{ getFavorites, getMyStats, updateNickname \} from "\/js\/api\.js";/);
+    assert.match(pureSource, /import \{ buildSearchUrl \} from "\/js\/links\.js";/);
+    assert.doesNotMatch(pureSource + page + html, /준비 중|TODO\(즐겨찾기|TODO\(전체 관리|MOCK_FAVORITES/);
+    assert.match(page, /card\.addEventListener\("click", \(\) => openFavoriteInSearch\(places\[index\]\)\);/);
+    assert.match(page, /load: loadFavorites, render: renderFavorites,/);
+    assert.match(page, /errorText: "즐겨찾기를 불러오지 못했어요\."/);
+    // 전체 관리 → 즐겨찾기·기록 화면의 즐겨찾기 탭
+    assert.match(html, /<a class="section-link" href="\/pages\/favorites\.html\?tab=favorites">전체 관리/);
+    assert.equal(linksCtx.savedTabFromQuery('?tab=favorites'), 'favorites');
+  }
   // 이용 통계: api.js getMyStats를 부르고, "아직 서버와 연결되지 않았어요" 분기·TODO는 없다. 섹션 오류·다시 시도는 그대로
   const pure = await read('../js/mypage.js');
-  assert.match(pure, /import \{ getMyStats, updateNickname \} from "\/js\/api\.js";/);
+  assert.match(pure, /import \{ getFavorites, getMyStats, updateNickname \} from "\/js\/api\.js";/);
   assert.doesNotMatch(pure, /연결되지 않았|TODO\(통계 API\)|USE_MOCK_STATS \}? ?from/);
   assert.match(page, /load: \(\) => loadWeeklyStats\(\), render: renderStats,/);
   assert.match(page, /errorText: "이용 통계를 불러오지 못했어요\."/);
