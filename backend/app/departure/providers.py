@@ -52,10 +52,10 @@ class RouteProvider(ABC):
         depart_at: datetime,
         option: RouteOption = DEFAULT_ROUTE_OPTION,
     ) -> RouteSummary:
-        """캐시를 읽지도 쓰지도 않는 요약 조회 (소요시간 그래프. 카카오 약관상 응답 캐시 불가).
+        """소요시간 그래프의 요약 조회. 응답은 캐시하지 않는다 (카카오 약관. 다른 조회도 마찬가지).
 
-        캐시가 없는 Provider는 get_route_summary와 같다. 캐시를 두는 Provider는 반드시 덮어쓴다.
-        여러 작업 스레드에서 동시에 불릴 수 있다.
+        기본은 get_route_summary와 같다. 여러 작업 스레드에서 동시에 불릴 수 있으므로,
+        스레드 안전하지 않은 자원(HTTP 세션 등)을 쓰는 Provider는 덮어쓴다.
         """
         return self.get_route_summary(origin, dest, depart_at, option)
 

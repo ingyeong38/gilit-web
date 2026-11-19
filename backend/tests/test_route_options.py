@@ -1,4 +1,4 @@
-"""경로 비교 1단계(공급자 계층) 테스트: RouteOption, 옵션별 요약·캐시, 통행료 파싱, avoid, Mock 옵션.
+"""경로 비교 1단계(공급자 계층) 테스트: RouteOption, 옵션별 요약(캐시 없음), 통행료 파싱, avoid, Mock 옵션.
 
 카카오는 가짜 세션으로 요청 파라미터만 확인한다. 실제 호출은 tests/test_kakao_live.py에 있다.
 """
@@ -19,7 +19,7 @@ from app.departure import (
 )
 from app.routing import parse_detailed_route
 from tests.conftest import DONGEUI_UNIV, GIMHAE_CITY_HALL, SEOUL_STATION, ConstantProvider, kst
-from tests.test_kakao_provider import FakeMonotonic, make_provider, response, sent
+from tests.test_kakao_provider import make_provider, response, sent
 
 RECOMMEND, TIME, DISTANCE, FREE = (ROUTE_OPTIONS[key] for key in ("recommend", "time", "distance", "free"))
 
@@ -93,11 +93,11 @@ def test_get_duration_is_recommend_summary():
     assert "avoid" not in params
 
 
-# --- 옵션별 캐시 ---
+# --- 옵션별 조회 (캐시 없음) ---
 
 
-def test_cache_is_separate_per_option():
-    provider, session = make_provider(*(summary_body(duration=1000 + i) for i in range(4)))
+def test_every_option_lookup_calls_api_every_time():
+    provider, session = make_provider(*(summary_body(duration=1000 + i) for i in range(8)))
     depart = kst(5, 8, 10)
 
     durations = [provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, depart, option).duration_sec
@@ -105,32 +105,20 @@ def test_cache_is_separate_per_option():
     again = [provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, depart, option).duration_sec
              for option in (RECOMMEND, TIME, DISTANCE, FREE)]
 
-    assert durations == again == [1000, 1001, 1002, 1003]
-    assert session.get.call_count == provider.request_count == 4
+    assert durations == [1000, 1001, 1002, 1003]
+    assert again == [1004, 1005, 1006, 1007]  # 이전 응답을 재사용하지 않는다
+    assert session.get.call_count == provider.request_count == 8
 
 
-def test_get_duration_shares_cache_with_recommend_option():
-    """출발시각 역산(/api/departure)과 경로 비교의 추천 옵션이 같은 조회를 두 번 하지 않는다."""
-    provider, session = make_provider(summary_body(duration=1800))
+def test_get_duration_and_recommend_option_send_same_request_each_time():
+    """출발시각 역산(/api/departure)과 경로 비교의 추천 옵션은 같은 요청을 각자 보낸다."""
+    provider, session = make_provider(summary_body(duration=1800), summary_body(duration=1900))
 
     provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10), RECOMMEND)
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1800
+    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1900
 
-    assert session.get.call_count == 1
-
-
-def test_option_cache_expires_after_ttl():
-    clock = FakeMonotonic()
-    provider, session = make_provider(summary_body(duration=1800, fare={"toll": 0}),
-                                      summary_body(duration=1900, fare={"toll": 0}),
-                                      cache_ttl_sec=600, monotonic=clock)
-
-    first = provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10), FREE)
-    clock.now += 600
-    second = provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10), FREE)
-
-    assert (first.duration_sec, second.duration_sec) == (1800, 1900)
     assert session.get.call_count == 2
+    assert sent(session, 0)[1] == sent(session, 1)[1]
 
 
 def test_route_not_found_is_not_cached():

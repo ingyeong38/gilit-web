@@ -22,7 +22,6 @@ from app.departure import DepartureError, DepartureSolver, RouteProvider
 from app.favorites import Coordinates, FavoriteService, create_favorite_store
 from app.history import HistoryService, create_history_store
 from app.route_graph import DailyCallBudget
-from app.routing import RouteResultCache
 
 logger = logging.getLogger("app.api")
 
@@ -96,8 +95,7 @@ def create_app(
         version="0.1.0",
         description="도착 희망 시각으로 권장 출발시각을 알려 주는 길찾기 서비스 API. 명세: docs/api-spec.md",
     )
-    app.state.route_cache = RouteResultCache(ttl=settings.route_cache_ttl_sec)
-    # 소요시간 그래프: 응답 캐시 없음(카카오 약관). 일일 예산과 작업 스레드는 프로세스에 하나씩 둔다.
+    # 길찾기 응답은 캐시하지 않는다 (카카오 약관). 소요시간 그래프도 마찬가지다. 일일 예산과 작업 스레드는 프로세스에 하나씩 둔다.
     app.state.graph_budget = DailyCallBudget(settings.graph_daily_call_budget)
     app.state.graph_executor = ThreadPoolExecutor(max_workers=settings.graph_max_workers, thread_name_prefix="route-graph")
     app.state.settings = settings

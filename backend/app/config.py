@@ -36,7 +36,6 @@ class Settings:
     kakao_rest_api_key: str | None = field(default=None, repr=False)  # repr로 키가 출력되지 않게 한다
     departure_max_calls: int = 8
     departure_search_window_min: int = 360
-    route_cache_ttl_sec: int = 600  # 카카오 소요시간 캐시 유지 시간. 0이면 캐시하지 않는다
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
     route_compare_options: tuple[str, ...] = tuple(ROUTE_OPTIONS)  # 경로 비교에 쓸 옵션과 카드 순서
     route_compare_max_calls: int = 6  # 경로 비교의 옵션 하나당 소요시간 조회 상한 (상세 조회는 따로 옵션당 1~2회)
@@ -77,7 +76,6 @@ class Settings:
             kakao_rest_api_key=env.get("KAKAO_REST_API_KEY", "").strip() or None,
             departure_max_calls=_int_env(env, "DEPARTURE_MAX_CALLS", cls.departure_max_calls),
             departure_search_window_min=_int_env(env, "DEPARTURE_SEARCH_WINDOW_MIN", cls.departure_search_window_min),
-            route_cache_ttl_sec=_int_env(env, "ROUTE_CACHE_TTL_SEC", cls.route_cache_ttl_sec),
             cors_origins=_cors_origins_env(env),
             route_compare_options=_route_compare_options_env(env),
             route_compare_max_calls=_int_env(env, "ROUTE_COMPARE_MAX_CALLS", cls.route_compare_max_calls),
@@ -150,7 +148,7 @@ def create_route_provider(settings: Settings) -> RouteProvider:
         return MockRouteProvider()
     if not settings.kakao_rest_api_key:
         raise ValueError("ROUTE_PROVIDER=kakao에는 KAKAO_REST_API_KEY 환경변수가 필요합니다.")
-    return KakaoRouteProvider(settings.kakao_rest_api_key, cache_ttl_sec=settings.route_cache_ttl_sec)
+    return KakaoRouteProvider(settings.kakao_rest_api_key)
 
 
 def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:

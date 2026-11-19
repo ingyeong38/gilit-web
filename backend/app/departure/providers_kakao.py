@@ -5,18 +5,14 @@ GET https://apis-navi.kakaomobility.com/v1/future/directions
 - 좌표는 "경도,위도" 순서다. 엔진의 Coordinate는 (위도, 경도)이므로 여기서 바꾼다.
 - departure_time은 한국 시간 YYYYMMDDHHmm이다. 분 단위로 내려 보낸다.
 - 경로가 없으면 HTTP 200에 routes[0].result_code != 0으로 온다 (예: 104 출발지와 도착지가 5m 이내).
-- 일일 쿼터(5,000건)가 있으므로 같은 조회는 메모리 캐시로 다시 부르지 않는다.
-  예측값이 갱신되도록 캐시 항목은 cache_ttl_sec(기본 10분)이 지나면 버린다.
+- 카카오 약관상 길찾기 응답은 캐시·저장하지 않는다 (임시 포함). 같은 조회도 매번 API를 부른다.
 - 경로 옵션은 priority(RECOMMEND, TIME, DISTANCE)와 avoid(toll 등, 여러 개면 |로 잇는다)로 고른다.
-  요약 조회(get_route_summary)는 summary=true로 경로 좌표 없이 받고, 옵션마다 캐시를 따로 둔다.
-- 소요시간 그래프(get_route_summary_uncached, use_cache=False)는 카카오 약관상 응답을 캐시할 수 없어
-  이 캐시를 읽지도 쓰지도 않는다. 그래프 작업 스레드에서 동시에 불리므로 스레드마다 HTTP 세션을 따로 쓴다.
+  요약 조회(get_route_summary)는 summary=true로 경로 좌표 없이 받는다.
+- 소요시간 그래프(get_route_summary_uncached)는 그래프 작업 스레드에서 동시에 불리므로 스레드마다 HTTP 세션을 따로 쓴다.
 """
 
 import math
 import threading
-import time
-from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime
 
@@ -46,22 +42,17 @@ from app.departure.providers import RouteProvider
 
 KAKAO_FUTURE_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/future/directions"
 MAX_DETAIL_LENGTH = 100  # 오류 메시지에 붙이는 카카오 안내 문구의 최대 길이
-DEFAULT_CACHE_TTL_SEC = 600.0
-
-CacheKey = tuple[Coordinate, Coordinate, datetime, RouteOption]
 
 
 class KakaoRouteProvider(RouteProvider):
     """카카오모빌리티 미래 운행 정보로 출발시각별 자동차 소요시간을 조회한다.
 
     API 키는 _api_key에만 두고 repr, 오류 메시지, 예외 체인 어디에도 드러내지 않는다.
-    캐시는 프로세스 메모리에 두는 LRU다. cache_size를 넘으면 가장 오래 안 쓴 항목을, cache_ttl_sec이 지나면
-    그 항목을 버린다. cache_ttl_sec=0이면 캐시하지 않는다.
-    웹 서버는 인스턴스 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서만 고친다.
-    API 호출은 잠금 밖에서 하므로, 같은 조회가 동시에 들어오면 둘 다 API를 부를 수 있다.
+    응답은 캐시하지 않는다 (카카오 약관). 모든 조회는 매번 API를 부른다.
+    웹 서버는 인스턴스 하나를 여러 요청 스레드가 함께 쓰므로 호출 횟수(request_count)는 잠금 안에서만 고친다.
 
     HTTP 세션: 기존 조회(get_duration, get_route_summary, 상세 경로, 장소 검색)는 지금처럼 session 하나를 쓴다.
-    캐시 우회 조회(use_cache=False)는 스레드마다 session_factory로 만든 세션을 쓴다. requests.Session은
+    그래프 조회(get_route_summary_uncached)는 스레드마다 session_factory로 만든 세션을 쓴다. requests.Session은
     스레드 안전을 보장하지 않으므로(쿠키 저장소·어댑터 상태 공유) 그래프의 동시 조회가 한 세션을 나눠 쓰지 않게 한다.
     session_factory가 없으면 session을 준 경우 그 세션(테스트용 가짜), 아니면 새 requests.Session이다.
     """
@@ -73,17 +64,10 @@ class KakaoRouteProvider(RouteProvider):
         session: requests.Session | None = None,
         session_factory: Callable[[], requests.Session] | None = None,
         timeout: float = 10.0,
-        cache_size: int = 1024,
-        cache_ttl_sec: float = DEFAULT_CACHE_TTL_SEC,
         url: str = KAKAO_FUTURE_DIRECTIONS_URL,
-        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if not api_key or not api_key.strip():
             raise ValueError("KAKAO_REST_API_KEY가 비어 있습니다.")
-        if cache_size < 1:
-            raise ValueError("cache_size는 1 이상이어야 합니다.")
-        if cache_ttl_sec < 0:
-            raise ValueError("cache_ttl_sec은 0 이상이어야 합니다.")
         self._api_key = api_key.strip()
         self._session = session or requests.Session()
         if session_factory is None:
@@ -91,19 +75,12 @@ class KakaoRouteProvider(RouteProvider):
         self._session_factory = session_factory
         self._thread_sessions = threading.local()
         self.timeout = timeout
-        self.cache_size = cache_size
-        self.cache_ttl_sec = cache_ttl_sec
         self.url = url
-        self.request_count = 0  # 실제로 API를 부른 횟수 (쿼터 확인용, 캐시 적중은 세지 않는다)
-        self._monotonic = monotonic
+        self.request_count = 0  # 실제로 API를 부른 횟수 (쿼터 확인용)
         self._lock = threading.Lock()
-        self._cache: OrderedDict[CacheKey, tuple[RouteSummary, float]] = OrderedDict()  # 값: (요약, 만료 시각)
 
     def __repr__(self) -> str:
-        return (
-            f"KakaoRouteProvider(timeout={self.timeout}, cache_size={self.cache_size}, "
-            f"cache_ttl_sec={self.cache_ttl_sec})"
-        )
+        return f"KakaoRouteProvider(timeout={self.timeout})"
 
     def get_duration(
         self,
@@ -115,7 +92,7 @@ class KakaoRouteProvider(RouteProvider):
         travel_mode = TravelMode(travel_mode)
         if travel_mode is not TravelMode.CAR:
             raise UnsupportedTravelModeError("대중교통은 아직 지원하지 않습니다.")
-        # 우선순위를 정하지 않은 조회는 추천 경로다. 경로 비교의 recommend 옵션과 같은 캐시를 쓴다.
+        # 우선순위를 정하지 않은 조회는 추천 경로다 (경로 비교의 recommend 옵션과 같은 요청).
         return self.get_route_summary(origin, dest, depart_at, DEFAULT_ROUTE_OPTION).duration_sec
 
     def get_route_summary(
@@ -124,26 +101,9 @@ class KakaoRouteProvider(RouteProvider):
         dest: Coordinate,
         depart_at: datetime,
         option: RouteOption = DEFAULT_ROUTE_OPTION,
-        *,
-        use_cache: bool = True,
     ) -> RouteSummary:
-        """경로 옵션별 요약(소요시간·거리·통행료). (출발지, 목적지, 출발시각(분), 옵션)마다 캐시한다.
-
-        use_cache=False(소요시간 그래프)는 캐시를 읽지도 쓰지도 않고, 이 스레드의 세션으로 매번 API를 부른다.
-        """
-        if depart_at.tzinfo is None:
-            raise ValueError("depart_at에는 시간대 정보가 있어야 합니다.")
-        depart_local = depart_at.astimezone(KST).replace(second=0, microsecond=0)
-        if not use_cache:
-            return self._request_summary(origin, dest, depart_local, option, session=self._worker_session())
-
-        key = (origin, dest, depart_local, option)
-        cached = self._cache_get(key)
-        if cached is not None:
-            return cached
-        summary = self._request_summary(origin, dest, depart_local, option)
-        self._cache_put(key, summary)
-        return summary
+        """경로 옵션별 요약(소요시간·거리·통행료). 캐시하지 않고 공유 세션으로 매번 API를 부른다."""
+        return self._request_summary(origin, dest, _depart_minute(depart_at), option)
 
     def get_route_summary_uncached(
         self,
@@ -152,7 +112,8 @@ class KakaoRouteProvider(RouteProvider):
         depart_at: datetime,
         option: RouteOption = DEFAULT_ROUTE_OPTION,
     ) -> RouteSummary:
-        return self.get_route_summary(origin, dest, depart_at, option, use_cache=False)
+        """소요시간 그래프용. get_route_summary와 같은 요청을 이 스레드의 세션으로 보낸다."""
+        return self._request_summary(origin, dest, _depart_minute(depart_at), option, session=self._worker_session())
 
     def _worker_session(self) -> requests.Session:
         session = getattr(self._thread_sessions, "session", None)
@@ -160,27 +121,6 @@ class KakaoRouteProvider(RouteProvider):
             session = self._session_factory()
             self._thread_sessions.session = session
         return session
-
-    def _cache_get(self, key: CacheKey) -> RouteSummary | None:
-        with self._lock:
-            entry = self._cache.get(key)
-            if entry is None:
-                return None
-            summary, expires_at = entry
-            if self._monotonic() >= expires_at:
-                del self._cache[key]
-                return None
-            self._cache.move_to_end(key)
-            return summary
-
-    def _cache_put(self, key: CacheKey, summary: RouteSummary) -> None:
-        if self.cache_ttl_sec == 0:
-            return
-        with self._lock:
-            self._cache[key] = (summary, self._monotonic() + self.cache_ttl_sec)
-            self._cache.move_to_end(key)
-            if len(self._cache) > self.cache_size:
-                self._cache.popitem(last=False)
 
     def _request_summary(
         self,
@@ -317,6 +257,13 @@ class KakaoRouteProvider(RouteProvider):
         """카카오 안내 문구를 메시지에 붙일 수 있게 다듬는다. 혹시 키가 섞여 있으면 가린다."""
         text = str(message or "").replace(self._api_key, "***").strip()
         return text[:MAX_DETAIL_LENGTH]
+
+
+def _depart_minute(depart_at: datetime) -> datetime:
+    """한국 시간으로 바꾸고 분 단위로 내린다 (카카오 departure_time 형식)."""
+    if depart_at.tzinfo is None:
+        raise ValueError("depart_at에는 시간대 정보가 있어야 합니다.")
+    return depart_at.astimezone(KST).replace(second=0, microsecond=0)
 
 
 def _lng_lat(coordinate: Coordinate) -> str:

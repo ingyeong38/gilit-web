@@ -4,7 +4,7 @@
 
 카카오 약관상 길찾기 응답은 캐시(임시 포함)할 수 없다. 그래서
 - 그래프 응답을 저장하지 않는다 (같은 요청이 다시 오면 다시 조회한다).
-- 슬롯 조회는 Provider의 메모리 캐시를 거치지 않는다 (RouteProvider.get_route_summary_uncached).
+- 슬롯 조회는 RouteProvider.get_route_summary_uncached로 한다 (응답 캐시 없음, 작업 스레드별 HTTP 세션).
 - 한 요청 안에서 같은 (출발지, 목적지, 분, 옵션)이 겹치면 그 요청 안에서만 한 번 조회해 나눠 쓴다.
 
 호출량은 요청당 슬롯 상한(GRAPH_MAX_SLOTS)과 그래프 전용 일일 예산(DailyCallBudget)으로 묶는다.
