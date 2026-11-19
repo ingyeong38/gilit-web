@@ -7,7 +7,7 @@ import { openAuthModal } from "/js/components/authModal.js";
 // 로그인해야 들어갈 수 있는 화면. 추가하거나 뺄 때는 이 배열을 고친다.
 // 새로 추가한 화면은 HTML 본문 영역에 data-auth-content hidden을 달고,
 // 페이지 스크립트에서 데이터를 불러오기 전에 requirePageAccess()를 기다린다.
-export const PROTECTED_PATHS = ["/pages/favorites.html", "/pages/stats.html"];
+export const PROTECTED_PATHS = ["/pages/favorites.html", "/pages/stats.html", "/pages/mypage.html"];
 
 // 로그인 없이 보호된 화면에 직접 들어왔다가 모달을 닫으면 보내는 곳
 const FALLBACK_PATH = "/pages/search.html";

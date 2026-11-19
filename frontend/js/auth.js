@@ -36,7 +36,7 @@ export function safeReturnPath(value) {
   try {
     if (typeof value !== "string" || value.length > MAX_RETURN_PATH_LENGTH || !value.startsWith("/") || value.startsWith("//")) return HOME_PATH;
     const url = new URL(value, location.origin);
-    if (url.origin !== location.origin || !["/", "/index.html", "/pages/search.html", RESULT_PATH, "/pages/favorites.html", "/pages/stats.html"].includes(url.pathname)) return HOME_PATH;
+    if (url.origin !== location.origin || !["/", "/index.html", "/pages/search.html", RESULT_PATH, "/pages/favorites.html", "/pages/stats.html", "/pages/mypage.html"].includes(url.pathname)) return HOME_PATH;
     url.searchParams.delete("auth_result");
     const path = url.pathname + url.search + url.hash;
     return path.length > MAX_RETURN_PATH_LENGTH ? HOME_PATH : path;
