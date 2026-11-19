@@ -55,6 +55,26 @@ class HistoryResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class DailySearchCount(BaseModel):
+    date: str = Field(description="날짜 (YYYY-MM-DD, KST)", examples=["2026-11-19"])
+    count: int = Field(description="그날 검색 횟수. 없으면 0", examples=[3])
+
+
+class MyStatsResponse(BaseModel):
+    """내 이용 통계 (docs/api-spec.md "내 이용 통계"). 검색 기록(search_history)으로 센다."""
+
+    range: Literal["week"] = Field(description="기간. 지금은 week(최근 7일, 오늘 포함)만 있다")
+    from_: str = Field(alias="from", description="첫날 (YYYY-MM-DD, KST)", examples=["2026-11-13"])
+    to: str = Field(description="마지막 날 = 오늘 (YYYY-MM-DD, KST)", examples=["2026-11-19"])
+    daily: list[DailySearchCount] = Field(description="날짜별 검색 횟수 7개, 오래된 날 → 오늘. 검색이 없는 날은 0")
+    total: int = Field(description="7일 합계 (daily의 count 합)", examples=[12])
+    topPlace: str | None = Field(
+        description="가장 많이 간 곳 (목적지 이름 기준 최다, 동률이면 가장 최근 검색). 없으면 null", examples=["동의대학교"]
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class NicknameErrorResponse(BaseModel):
     message: str = Field(description="사용자에게 그대로 보여 줄 수 있는 한국어 문장")
     code: Literal["empty", "length", "chars", "spaces", "required"] = Field(

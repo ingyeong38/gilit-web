@@ -26,6 +26,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | DELETE | `/api/history?id=` | 검색 기록 카드 한 장 삭제 (**구현됨**) | **필요** | 없음 | - |
 | DELETE | `/api/history` | 내 검색 기록 전체 삭제 (**구현됨**) | **필요** | 없음 | - |
 | GET | `/api/stats` | 이용 통계 | **필요** | `getStats` | `stats.json` |
+| GET | `/api/stats/me?range=week` | 내 이용 통계, 마이페이지 (**구현됨**) | **필요** | `getMyStats` | `api.js` 안의 mock (`USE_MOCK`일 때만, `USE_MOCK_STATS`와 무관) |
 | POST | `/api/visit` | 방문 로그 기록 | 불필요 | 없음 | - |
 | GET | `/health` | 서버 상태 확인 (**구현됨**) | 불필요 | - | - |
 
@@ -703,6 +704,46 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 ```
 
 계산: 방문자는 `visit_logs.session_id`의 서로 다른 값 개수, 검색 수는 `search_history` 행 수(로그인 사용자의 검색만, 지운 기록 제외), 인기 출발지·목적지는 `origin_name`·`dest_name`별 개수 상위 5개다. 방문이 없는 날은 `count: 0`으로 채운다. 쿼리 예시는 `db/README.md`에 있다.
+
+### GET /api/stats/me?range=week (내 이용 통계, 구현됨)
+
+로그인: **필요** (없으면 `401`). 마이페이지 "이용 통계"가 쓴다 (`getMyStats`). `USE_MOCK`(전체 mock 스위치)이 `true`일 때만 `api.js` 안의 mock을 쓰고, 그 밖에는 항상 이 API를 부른다. `USE_MOCK_STATS`는 통계 화면(`getStats`, `GET /api/stats`)에만 적용되고 이 API와는 무관하다.
+
+사이트 전체 통계(`GET /api/stats`, 통계 화면)와는 응답이 다른 **별도 경로**다. 로그인한 사용자 한 명의 검색 기록(`search_history`)만 센다. 새 표나 따로 보관하는 값은 없다.
+
+- `range`: `week`만 지원한다. 없으면 `week`. 그 밖의 값(빈 값, `WEEK`, `month` 등)은 `400` `{ "message": "기간(range)은 week만 지원합니다." }`
+
+```json
+{
+  "range": "week",
+  "from": "2026-11-13",
+  "to": "2026-11-19",
+  "daily": [
+    { "date": "2026-11-13", "count": 1 },
+    { "date": "2026-11-14", "count": 0 },
+    { "date": "2026-11-15", "count": 0 },
+    { "date": "2026-11-16", "count": 3 },
+    { "date": "2026-11-17", "count": 0 },
+    { "date": "2026-11-18", "count": 0 },
+    { "date": "2026-11-19", "count": 2 }
+  ],
+  "total": 6,
+  "topPlace": "동의대학교"
+}
+```
+
+집계 규칙
+- 기간: 오늘을 포함한 최근 7일. 한국 시간(KST) 날짜 기준으로 `오늘 -6일 0시 ~ 지금`. `from`은 첫날, `to`는 오늘이다
+- 기준 시각: `created_at`(검색한 시각, DB에 KST로 저장). 도착 희망 시각(`arrive_at`)이 아니다. 지금보다 뒤의 `created_at`은 세지 않는다
+- `daily`: 항상 7개, 오래된 날 → 오늘. 검색이 없는 날은 `count: 0`
+- `total`: 7일 합계 (`daily`의 `count` 합과 같다)
+- 횟수: 행 하나가 1회다. 검색 기록 화면의 "같은 검색" 묶기와 상관없다. 같은 검색을 5분 안에 다시 하면 기록 자체가 저장되지 않으므로 세지 않는다 ("자동 저장")
+- `topPlace`: 7일 안의 목적지 이름(`dest_name`) 기준 최다. 이름은 그대로 비교한다(대소문자·공백 구분). 동률이면 그중 가장 최근에 검색한 곳. 목적지 이름이 없는 행은 횟수에는 넣고 여기서는 뺀다. 셀 것이 없으면 `null`
+- 기록을 지우면(`DELETE /api/history`) 통계도 함께 줄어든다
+- 사용자당 기록은 최근 200행까지만 남으므로(`MAX_ATTACHED_ROWS`), 7일 동안 200회를 넘게 검색하면 오래된 검색은 세지 않는다
+- 날짜 묶기는 DB 시간대 함수가 아니라 서버 코드(`app/history/stats.py`)에서 한다
+
+오류: `400`(range), `401`, `503`(검색 기록 저장소를 쓸 수 없음)
 
 ## 방문 로그
 

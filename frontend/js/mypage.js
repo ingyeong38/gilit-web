@@ -1,7 +1,6 @@
 // 마이페이지의 데이터와 계산. 화면 연결은 js/pages/mypage.js가 한다.
 // 닉네임 저장은 서버(PATCH /api/auth/me)와 연결돼 있다. 나머지 서버 연결 지점은 아래 TODO에 있다 (서버 호출은 js/api.js에만 둔다).
-import { USE_MOCK_STATS } from "/js/config.js";
-import { updateNickname } from "/js/api.js";
+import { getMyStats, updateNickname } from "/js/api.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -192,17 +191,14 @@ export function weeklySummary(stats = {}, now = new Date()) {
   return { series, total, topPlace, heights: barHeights(series), period: periodLabel(series), empty: total === 0 };
 }
 
-// mock: 오늘 기준 최근 7일 (날짜는 실행 시점에 만든다). 마지막 값이 오늘이다.
-const MOCK_WEEKLY_COUNTS = [4, 7, 5, 9, 6, 11, 8];
-
-// 기존 통계 화면처럼 USE_MOCK_STATS로 mock과 실제를 나눈다 (stats.js → api.getStats와 같은 기준).
-// TODO(통계 API): 사용자별 주간 통계 API(예: GET /api/me/stats?days=7 → { daily: [{ date, count }], topPlace })를
-//   js/api.js에 추가하고 USE_MOCK_STATS가 false일 때 그것을 호출한다. "가장 많이 간 곳"의 기준(목적지 이름)도 함께 확정한다.
-export async function loadWeeklyStats(now = new Date()) {
-  if (!USE_MOCK_STATS) throw Object.assign(new Error("이용 통계는 아직 서버와 연결되지 않았어요."), { status: 501 });
+// 내 이용 통계 (api.js getMyStats → GET /api/stats/me?range=week. mock은 USE_MOCK=true일 때만, api.js 안에서).
+// weeklySummary가 쓰는 { daily: [{ date, count }], topPlace }로 맞춘다. 막대·합계는 daily로 다시 센다(weeklySummary).
+// 실패하면 그대로 던진다. 화면(sectionLoader)이 섹션 오류와 다시 시도를 보여 준다.
+export async function loadWeeklyStats(now = new Date(), { fetchStats = getMyStats } = {}) {
+  const stats = await fetchStats(now);
   return {
-    daily: lastSevenDays(now).map((day, index) => ({ date: day.date, count: MOCK_WEEKLY_COUNTS[index] })),
-    topPlace: "동의대학교",
+    daily: Array.isArray(stats?.daily) ? stats.daily : [],
+    topPlace: typeof stats?.topPlace === "string" ? stats.topPlace : null,
   };
 }
 

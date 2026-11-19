@@ -4,7 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from app.departure import KST
-from app.history.errors import LIMIT_INVALID, NOT_FOUND, HistoryError
+from app.history.errors import LIMIT_INVALID, NOT_FOUND, RANGE_INVALID, HistoryError
 from app.history.models import (
     DEFAULT_LIMIT,
     MAX_ATTACHED_ROWS,
@@ -15,6 +15,7 @@ from app.history.models import (
     search_key,
 )
 from app.history.recording import DEDUP_WINDOW
+from app.history.stats import RANGES, WeeklyStats, week_window, weekly_stats
 from app.history.stores import HistoryStore
 
 
@@ -28,6 +29,15 @@ def parse_limit(value: str | None) -> int:
     if not 1 <= number <= MAX_LIMIT:
         raise HistoryError(400, LIMIT_INVALID)
     return number
+
+
+def parse_range(value: str | None) -> str:
+    """?range= 값. 없으면 week. week가 아니면 400 (빈 값, 대소문자 다른 값 포함)."""
+    if value is None:
+        return "week"
+    if value not in RANGES:
+        raise HistoryError(400, RANGE_INVALID)
+    return value
 
 
 def parse_history_id(value: str | None) -> int | None:
@@ -45,6 +55,12 @@ class HistoryService:
 
     def list(self, user_id: int, limit: int) -> list[HistoryEntry]:
         return self.store.list(user_id, limit)
+
+    def weekly_stats(self, user_id: int) -> WeeklyStats:
+        """최근 7일(KST, 오늘 포함) 검색 횟수와 가장 많이 간 곳 (app/history/stats.py)."""
+        now = self._clock()
+        start, end = week_window(now)
+        return weekly_stats(self.store.list_created_between(user_id, start, end), now)
 
     def delete_one(self, user_id: int, entry_id: int | None) -> None:
         if entry_id is None or not self.store.delete_one(user_id, entry_id):

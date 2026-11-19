@@ -11,6 +11,7 @@ from app.api import departure, health, routes
 from app.api import favorites as favorites_api
 from app.api import history as history_api
 from app.api import oauth as oauth_api
+from app.api import stats as stats_api
 from app.api.errors import install_error_handlers
 from app.api.origin import install_origin_check
 from app.api.routes import resolve_place
@@ -124,6 +125,7 @@ def create_app(
     app.include_router(oauth_api.router)
     app.include_router(favorites_api.router)
     app.include_router(history_api.router)
+    app.include_router(stats_api.router)
     app.include_router(departure.router)
     app.include_router(routes.router)
     return app

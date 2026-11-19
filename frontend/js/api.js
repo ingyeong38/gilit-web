@@ -173,6 +173,27 @@ export async function getStats() {
   };
 }
 
+// 내 이용 통계 (GET /api/stats/me?range=week, docs/api-spec.md "내 이용 통계"). 마이페이지가 쓴다.
+// 응답: { range, from, to, daily: [{ date: "YYYY-MM-DD", count }] 7개(오래된 날 → 오늘, KST), total, topPlace(없으면 null) }
+// mock을 돌려주는 유일한 조건은 USE_MOCK(전체 mock 스위치)이 true일 때다. 그 밖에는 항상 실제 API를 부른다.
+// USE_MOCK_STATS는 보지 않는다. 그 값은 사이트 전체 통계(getStats, GET /api/stats, 통계 화면)에만 쓴다.
+// now는 mock 날짜에만 쓴다.
+const MOCK_WEEKLY_COUNTS = [4, 7, 5, 9, 6, 11, 8];
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function getMyStats(now = new Date()) {
+  if (!USE_MOCK) return requestJson(buildUrl("/stats/me", { range: "week" }), { cache: "no-store" });
+
+  // mock: 오늘(KST) 기준 최근 7일. 마지막 값이 오늘이다.
+  const daily = MOCK_WEEKLY_COUNTS.map((count, index) => ({
+    date: new Date(now.getTime() + KST_OFFSET_MS - (6 - index) * DAY_MS).toISOString().slice(0, 10),
+    count,
+  }));
+  const total = daily.reduce((sum, day) => sum + day.count, 0);
+  return { range: "week", from: daily[0].date, to: daily.at(-1).date, daily, total, topPlace: "동의대학교" };
+}
+
 // mock 계정은 이 브라우저의 localStorage에만 있다. 비밀번호는 평문 대신 SHA-256 값으로 둔다.
 // 실제 서버는 bcrypt로 해시한다 (docs/api-spec.md).
 function readMockUsers() {

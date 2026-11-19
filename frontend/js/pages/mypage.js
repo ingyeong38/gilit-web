@@ -20,7 +20,7 @@ import {
   saveNickname,
   validateNickname,
   weeklySummary,
-} from "/js/mypage.js?v=mypage-20261119-5";
+} from "/js/mypage.js?v=mypage-20261119-7";
 
 const PLACE_ICONS = { 집: "home", 회사: "wallet", 학교: "star" };
 
@@ -30,7 +30,7 @@ const favoritesBox = document.getElementById("mypage-favorites");
 const statsBox = document.getElementById("mypage-stats");
 const periodEl = document.getElementById("mypage-period");
 
-// 이 화면에서 바꾼 닉네임 (저장이 서버와 연결되기 전에는 화면에만 반영한다)
+// 지금 보여 주는 닉네임 (저장하면 서버 응답 값으로 바꾸고 setUser로 헤더에도 알린다)
 let nickname = "";
 let ownerId = null;
 

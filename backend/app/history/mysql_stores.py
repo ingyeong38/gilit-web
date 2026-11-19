@@ -100,6 +100,15 @@ class MySQLHistoryStore:
             )
             return group_latest([_entry(row) for row in cur.fetchall()], limit)
 
+    def list_created_between(self, user_id: int, start: datetime, end: datetime) -> list[HistoryEntry]:
+        # created_at은 KST DATETIME이다. to_db가 KST로 바꿔 비교한다 (DB 시간대 함수는 쓰지 않는다).
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {COLUMNS} FROM search_history WHERE user_id = %s AND created_at >= %s AND created_at <= %s",
+                (user_id, to_db(start), to_db(end)),
+            )
+            return [_entry(row) for row in cur.fetchall()]
+
     def delete_one(self, user_id: int, entry_id: int) -> bool:
         with self.pool.connection() as conn, conn.cursor() as cur:
             # 그 사용자의 행을 잠그고 읽어, 대상과 같은 묶음을 파이썬 규칙으로 고른다.

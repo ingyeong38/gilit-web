@@ -8,8 +8,11 @@ const read = async (path) => (await readFile(new URL(path, import.meta.url), 'ut
 const plain = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];\n/gm, '').replace(/^export /gm, '');
 const json = (value) => JSON.parse(JSON.stringify(value));
 const source = plain(await read('../js/mypage.js'));
-const load = (useMockStats = true) => {
-  const ctx = vm.createContext({ USE_MOCK_STATS: useMockStats, setTimeout, updateNickname: async (name) => ({ id: '1', name, email: null, provider: 'google' }) });
+// api.js 대역: getMyStats는 서버 응답 모양({ range, from, to, daily, total, topPlace })을 돌려준다
+const statsCalls = [];
+const load = () => {
+  const ctx = vm.createContext({ setTimeout, updateNickname: async (name) => ({ id: '1', name, email: null, provider: 'google' }),
+    getMyStats: async (now) => { statsCalls.push(now); return { range: 'week', from: '2026-11-13', to: '2026-11-19', daily: [{ date: '2026-11-19', count: 3 }], total: 3, topPlace: '해운대' }; } });
   vm.runInContext(source, ctx);
   return ctx;
 };
@@ -205,12 +208,29 @@ const days = (now) => json(m.lastSevenDays(now));
 // --- mock 로더
 {
   const now = new Date('2026-11-18T15:00:00Z'); // KST 11-19 0시
-  const stats = json(await m.loadWeeklyStats(now));
-  assert.deepEqual(stats.daily.map((d) => d.date), days(now).map((d) => d.date), 'mock 날짜는 실행 시점 기준 최근 7일');
+  // 기본은 api.js getMyStats. 응답을 weeklySummary 입력({ daily, topPlace })으로 맞춘다
+  assert.deepEqual(json(await m.loadWeeklyStats(now)), { daily: [{ date: '2026-11-19', count: 3 }], topPlace: '해운대' });
+  assert.equal(statsCalls.at(-1), now, 'now를 넘긴다 (mock 날짜용)');
+  const server = {
+    range: 'week', from: '2026-11-13', to: '2026-11-19', total: 6, topPlace: '동의대학교',
+    daily: ['2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19'].map((date, i) => ({ date, count: [1, 0, 0, 3, 0, 0, 2][i] })),
+  };
+  const stats = json(await m.loadWeeklyStats(now, { fetchStats: async () => server }));
+  assert.deepEqual(stats, { daily: server.daily, topPlace: '동의대학교' });
   const summary = json(m.weeklySummary(stats, now));
-  assert.equal(summary.total, stats.daily.reduce((sum, d) => sum + d.count, 0));
+  assert.deepEqual(summary.series.map((d) => d.count), [1, 0, 0, 3, 0, 0, 2]);
+  assert.equal(summary.total, server.total, '합계 = 서버 total = 날짜별 합');
+  assert.equal(summary.topPlace, '동의대학교');
   assert.equal(summary.series.at(-1).date, '2026-11-19');
-  await assert.rejects(load(false).loadWeeklyStats(now), (error) => error.status === 501 && /연결되지 않았/.test(error.message), 'USE_MOCK_STATS=false면 아직 API가 없음을 알린다');
+  // 기록이 없는 사용자: 0으로 채운 7일, 가장 많이 간 곳 null → 빈 상태
+  const empty = json(m.weeklySummary(await m.loadWeeklyStats(now, { fetchStats: async () => ({ ...server, daily: server.daily.map((d) => ({ ...d, count: 0 })), total: 0, topPlace: null }) }), now));
+  assert.deepEqual([empty.total, empty.topPlace, empty.empty], [0, null, true]);
+  // 모양이 어긋난 응답도 빈 통계로 그린다
+  assert.deepEqual(json(await m.loadWeeklyStats(now, { fetchStats: async () => ({}) })), { daily: [], topPlace: null });
+  assert.deepEqual(json(await m.loadWeeklyStats(now, { fetchStats: async () => null })), { daily: [], topPlace: null });
+  // 실패는 그대로 던진다 (화면이 섹션 오류·다시 시도를 보여 준다)
+  await assert.rejects(m.loadWeeklyStats(now, { fetchStats: async () => { throw Object.assign(new Error('로그인이 필요합니다.'), { status: 401 }); } }),
+    (error) => error.status === 401);
   const first = await m.loadFavorites();
   first[0].name = '변경';
   assert.notEqual((await m.loadFavorites())[0].name, '변경', '복사본을 돌려준다');
@@ -228,7 +248,7 @@ const days = (now) => json(m.lastSevenDays(now));
   let notified;
   assert.equal(m.openFavoriteInSearch({ name: '집' }, { notify: (msg) => { notified = msg; } }), null);
   assert.match(notified, /집/);
-  console.log('PASS: mock 로더(최근 7일 날짜·USE_MOCK_STATS 분기·복사본), 저장·카드 클릭 TODO 동작');
+  console.log('PASS: 통계 로더(서버 응답 매핑·빈 통계·실패 전달), 즐겨찾기 복사본, 저장·카드 클릭 TODO 동작');
 }
 
 // --- 연결: 보호 화면·복귀 주소·헤더 링크·HTML
@@ -253,13 +273,18 @@ const days = (now) => json(m.lastSevenDays(now));
   assert.match(page, /from "\/js\/mypage\.js\?v=mypage-\d{8}-\d+"/);
   // 캐시 버전: HTML의 CSS·JS와 페이지 스크립트의 import가 같은 값이고, 처음 값(-1)이 아니다
   const versions = new Set([...html.matchAll(/mypage\.(?:css|js)\?v=([\w-]+)"/g), ...page.matchAll(/mypage\.js\?v=([\w-]+)"/g)].map((match) => match[1]));
-  assert.deepEqual([...versions], ['mypage-20261119-5']);
+  assert.deepEqual([...versions], ['mypage-20261119-7']);
+  // 이용 통계: api.js getMyStats를 부르고, "아직 서버와 연결되지 않았어요" 분기·TODO는 없다. 섹션 오류·다시 시도는 그대로
+  const pure = await read('../js/mypage.js');
+  assert.match(pure, /import \{ getMyStats, updateNickname \} from "\/js\/api\.js";/);
+  assert.doesNotMatch(pure, /연결되지 않았|TODO\(통계 API\)|USE_MOCK_STATS \}? ?from/);
+  assert.match(page, /load: \(\) => loadWeeklyStats\(\), render: renderStats,/);
+  assert.match(page, /errorText: "이용 통계를 불러오지 못했어요\."/);
   // 저장 성공: 공유 사용자 상태(setUser)를 바꿔 헤더도 바로 바뀌고, "서버 저장 전" 안내·TODO는 없다
   assert.match(page, /import \{ getUser, onAuthChange, recheckAuth, setUser \} from "\/js\/auth\.js";/);
   assert.match(page, /setUser\(\{ \.\.\.current, \.\.\.saved, id: current\.id, name: nickname \}\)/);
   assert.match(page, /if \(user\.name && user\.name !== nickname\) \{\s*nickname = user\.name;\s*renderProfile\(\);/);
   assert.doesNotMatch(page + (await read('../js/mypage.js')), /서버 저장(은| 전)|TODO\(닉네임 저장\)/);
-  assert.match(await read('../js/mypage.js'), /import \{ updateNickname \} from "\/js\/api\.js";/);
   // 막대: JS는 비율(--h)만 넣고 높이는 CSS 배율이 정한다
   assert.match(page, /style="--h:\$\{\(summary\.heights\[index\] \/ BAR_MAX_HEIGHT\)\.toFixed\(4\)\}"/);
   assert.equal(vm.runInContext('BAR_MAX_HEIGHT', m), 77);
@@ -320,4 +345,44 @@ const days = (now) => json(m.lastSevenDays(now));
   user = null;
   await assert.rejects(api.updateNickname('길잇'), (error) => error.status === 401);
   console.log('PASS: api.js updateNickname(PATCH /api/auth/me 본문·400 code 전달·401), mock 분기');
+
+  // getMyStats: mock은 USE_MOCK=true일 때만. USE_MOCK_STATS는 보지 않는다 (그 값은 getStats 전용)
+  const STATS_URL = '/api/stats/me?range=week';
+  const serverReply = { range: 'week', daily: [], total: 0, topPlace: null };
+  const route = async (useMock, useMockStats) => {
+    vm.runInContext(`USE_MOCK = ${useMock}; USE_MOCK_STATS = ${useMockStats}`, api);
+    reply = { ok: true, status: 200, json: async () => serverReply };
+    const before = requests.length;
+    const result = json(await api.getMyStats(new Date('2026-11-18T15:00:00Z'))); // KST 11-19 0시
+    return { called: requests.length > before ? requests.at(-1) : null, result };
+  };
+  // USE_MOCK=false, USE_MOCK_STATS=false / true → 둘 다 실제 API
+  for (const useMockStats of [false, true]) {
+    const { called, result } = await route(false, useMockStats);
+    assert.ok(called, `USE_MOCK=false, USE_MOCK_STATS=${useMockStats}: 서버를 부른다`);
+    assert.equal(called.url, STATS_URL);
+    assert.equal(called.options.cache, 'no-store');
+    assert.equal(called.options.method, undefined, 'GET');
+    assert.deepEqual(result, serverReply, '응답 그대로');
+  }
+  // USE_MOCK=true, USE_MOCK_STATS=* → 서버를 부르지 않고 오늘(KST) 기준 7일 mock
+  for (const useMockStats of [false, true]) {
+    const { called, result } = await route(true, useMockStats);
+    assert.equal(called, null, `USE_MOCK=true, USE_MOCK_STATS=${useMockStats}: 서버를 부르지 않는다`);
+    assert.deepEqual(result.daily.map((d) => d.date), ['2026-11-13', '2026-11-14', '2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19']);
+    assert.deepEqual([result.range, result.from, result.to, result.total, result.topPlace], ['week', '2026-11-13', '2026-11-19', 50, '동의대학교']);
+    assert.equal(result.total, result.daily.reduce((sum, d) => sum + d.count, 0));
+  }
+  assert.equal(json(await api.getMyStats(new Date('2026-11-18T14:59:59Z'))).to, '2026-11-18', 'mock: UTC 14:59:59는 아직 KST 전날');
+  // 실제 API 오류는 ApiError로 전달
+  vm.runInContext('USE_MOCK = false; USE_MOCK_STATS = true', api);
+  reply = { ok: false, status: 401, json: async () => ({ message: '로그인이 필요합니다.' }) };
+  await assert.rejects(api.getMyStats(), (error) => error.status === 401 && error.message === '로그인이 필요합니다.');
+  // 소스 규칙: getMyStats 본문은 USE_MOCK만 보고, USE_MOCK_STATS는 getStats에서만 쓴다
+  const apiSource = await read('../js/api.js');
+  const body = apiSource.slice(apiSource.indexOf('export async function getMyStats'), apiSource.indexOf('// mock 계정은'));
+  assert.match(body, /if \(!USE_MOCK\) return requestJson\(buildUrl\("\/stats\/me", \{ range: "week" \}\)/);
+  assert.doesNotMatch(body, /USE_MOCK_STATS/);
+  assert.deepEqual([...apiSource.matchAll(/if \(!USE_MOCK_STATS\)[^\n]*/g)].map((m) => m[0]), ['if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"));']);
+  console.log('PASS: api.js getMyStats 조합별 경로(USE_MOCK false/false·false/true → GET /api/stats/me?range=week, true/* → mock), KST 경계, 오류 전달');
 }
