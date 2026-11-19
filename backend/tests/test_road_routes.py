@@ -324,42 +324,22 @@ def test_selected_coordinates_avoid_ambiguous_name_lookup():
     provider.search_places.assert_not_called()
 
 
-# --- 응답 캐시 ---
+# --- 응답 캐시 없음 ---
 
 
-def test_route_result_cache_reuses_same_query_and_is_bounded():
+def test_same_route_query_twice_calls_provider_every_time():
+    """카카오 약관상 응답을 캐시하지 않는다. 같은 조건을 다시 보내도 처음과 같은 횟수만큼 다시 부른다."""
     provider = RoadProvider()
     api = client(provider)
     first = api.get('/api/routes', params=params())
     count = len(provider.summary_calls) + len(provider.detail_calls)
     second = api.get('/api/routes', params=params())
-    assert first.headers['X-Gilit-Route-Cache'] == 'MISS'
-    assert second.headers['X-Gilit-Route-Cache'] == 'HIT'
-    assert second.headers['Cache-Control'] == 'no-store'
+    assert first.status_code == second.status_code == 200
+    assert count > 0
+    assert len(provider.summary_calls) + len(provider.detail_calls) == count * 2
     assert first.json() == second.json()
-    assert len(provider.summary_calls) + len(provider.detail_calls) == count
-    api.get('/api/routes', params=params(buffer=15))
-    assert len(provider.summary_calls) + len(provider.detail_calls) > count
-
-
-def test_cache_ttl_disabled_expiry_bound_copy_and_past_departure():
-    from app.routing import RouteResultCache
-    ticks = [0]
-    cache = RouteResultCache(ttl=10, max_entries=1, monotonic=lambda: ticks[0])
-    routes = [{"path": [{"lat": 35, "lng": 129}], "departTime": kst(5, 8).isoformat()}]
-    cache.put('one', routes)
-    copy = cache.get('one', NOW)
-    copy[0]['path'][0]['lat'] = 40
-    assert cache.get('one', NOW)[0]['path'][0]['lat'] == 35
-    ticks[0] = 10
-    assert cache.get('one', NOW) is None
-    cache.put('one', routes)
-    cache.put('two', routes)
-    assert cache.get('one', NOW) is None
-    assert cache.get('two', kst(5, 9)) is None
-    disabled = RouteResultCache(ttl=0)
-    disabled.put('one', routes)
-    assert disabled.get('one', NOW) is None
+    assert second.headers['Cache-Control'] == 'no-store'
+    assert 'X-Gilit-Route-Cache' not in second.headers
 
 
 # --- /docs ---

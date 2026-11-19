@@ -15,7 +15,7 @@ from app.api.schemas import (
     RouteQuery,
     card_option_message,
 )
-from app.departure import KST, ArrivalTimePassedError, Coordinate, RouteProvider
+from app.departure import ArrivalTimePassedError, Coordinate, RouteProvider
 from app.departure.errors import DepartureError, ProviderUnavailableError
 from app.history.recording import draft_from_route_search
 from app.route_graph import GraphCard, collect_route_graphs
@@ -81,22 +81,11 @@ def get_routes(
     settings = request.app.state.settings
     provider = request.app.state.provider
     clock = request.app.state.solver.clock
-    cache = request.app.state.route_cache
     response.headers["Cache-Control"] = "no-store"
 
     # 장소 검색을 시작하기 전에 지난 시각을 거른다.
     if query.arrive <= clock():
         raise ArrivalTimePassedError("도착 희망 시각이 이미 지났습니다.")
-    cache_key = (query.from_, query.to, query.arrive.astimezone(KST), query.buffer,
-                 query.fromLat, query.fromLng, query.toLat, query.toLng)
-    cached, places = cache.get_with_meta(cache_key, clock())
-    if cached is not None:
-        response.headers["X-Gilit-Route-Cache"] = "HIT"
-        # 캐시 적중도 사용자가 검색한 것이다. 좌표는 처음 계산할 때 확정한 값을 함께 기억해 두었다.
-        origin, destination = places or (query.origin(), query.destination())
-        background.add_task(record_search, request, query, origin, destination, cached)
-        return cached
-
     origin = query.origin() or resolve_place(provider, query.from_)
     destination = query.destination() or resolve_place(provider, query.to)
     result = compare_routes(
@@ -117,8 +106,6 @@ def get_routes(
     logger.info("경로 비교: 카드 %d개, 길찾기 조회 %d회", len(result.cards), result.lookups)
 
     cards = [card.to_dict() for card in result.cards]
-    cache.put(cache_key, cards, meta=(origin, destination))
-    response.headers["X-Gilit-Route-Cache"] = "MISS"
     background.add_task(record_search, request, query, origin, destination, cards)
     return cards
 

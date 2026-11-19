@@ -142,7 +142,6 @@ def test_cli_reports_provider_error_without_traceback(capsys, monkeypatch):
 def test_web_settings_defaults():
     settings = Settings.from_env({})
 
-    assert settings.route_cache_ttl_sec == 600
     assert settings.cors_origins == ("http://localhost:5500", "http://127.0.0.1:5500")
 
 
@@ -157,14 +156,11 @@ def test_cors_origins_reject_wildcard():
         Settings.from_env({"CORS_ORIGINS": "*"})
 
 
-def test_cache_ttl_is_passed_to_kakao_provider():
-    settings = Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "k", "ROUTE_CACHE_TTL_SEC": "120"})
-
-    assert create_route_provider(settings).cache_ttl_sec == 120
-
-
-def test_negative_cache_ttl_fails_at_startup():
+def test_leftover_route_cache_env_is_ignored():
+    """예전 .env에 남은 캐시 설정은 읽지 않는다 (응답은 캐시하지 않음)."""
     settings = Settings.from_env({"ROUTE_PROVIDER": "kakao", "KAKAO_REST_API_KEY": "k", "ROUTE_CACHE_TTL_SEC": "-1"})
 
-    with pytest.raises(ValueError, match="cache_ttl_sec"):
-        create_route_provider(settings)
+    provider = create_route_provider(settings)
+
+    assert not hasattr(settings, "route_cache_ttl_sec")
+    assert not hasattr(provider, "cache_ttl_sec")

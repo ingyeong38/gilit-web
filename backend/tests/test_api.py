@@ -341,12 +341,10 @@ def test_provider_is_created_once_per_app(monkeypatch):
 
 def test_create_app_reads_environment(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://gilit.example.com, http://localhost:3000/")
-    monkeypatch.setenv("ROUTE_CACHE_TTL_SEC", "60")
 
     settings = create_app().state.settings
 
     assert settings.cors_origins == ("https://gilit.example.com", "http://localhost:3000")
-    assert settings.route_cache_ttl_sec == 60
     assert settings.route_provider == "mock"
 
 

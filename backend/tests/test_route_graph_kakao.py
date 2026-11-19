@@ -1,7 +1,7 @@
-"""그래프 경로의 카카오 캐시 우회. 실제 KakaoRouteProvider를 쓰고 HTTP(requests 세션)만 가짜로 바꾼다.
+"""그래프 경로의 카카오 조회. 실제 KakaoRouteProvider를 쓰고 HTTP(requests 세션)만 가짜로 바꾼다.
 
-카카오 약관상 응답을 캐시(임시 포함)하지 않으므로, 그래프 조회는 Provider 메모리 캐시를 읽지도 쓰지도 않는다.
-기존 F3(/api/departure)·F5(/api/routes)의 조회(get_duration, get_route_summary)는 지금처럼 캐시를 쓴다.
+카카오 약관상 응답을 캐시(임시 포함)하지 않는다. 그래프와 F3(/api/departure)·F5(/api/routes)의 조회
+(get_duration, get_route_summary) 모두 같은 조회도 매번 API를 부른다.
 """
 
 import threading
@@ -43,7 +43,6 @@ def test_graph_path_calls_http_every_time_for_the_same_slot():
 
     assert session.get.call_count == 2
     assert provider.request_count == 2
-    assert provider._cache == {}  # 그래프 응답은 캐시에 쓰지 않는다
 
 
 def test_graph_service_twice_calls_http_twice_per_slot():
@@ -56,35 +55,22 @@ def test_graph_service_twice_calls_http_twice_per_slot():
     assert first == second
     assert len(first[0]["points"]) == 7
     assert session.get.call_count == 14
-    assert provider._cache == {}
 
 
-def test_graph_path_ignores_entries_cached_by_f3_f5():
-    session = fake_session()
-    provider = KakaoRouteProvider(API_KEY, session=session)
-    provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, RECOMMEND)  # F5가 캐시에 넣는다
-    assert session.get.call_count == 1
-
-    provider.get_route_summary_uncached(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, RECOMMEND)
-
-    assert session.get.call_count == 2  # 캐시 적중으로 돌려주지 않는다
-
-
-def test_f3_f5_lookups_keep_using_the_cache():
+def test_f3_f5_lookups_call_api_every_time():
     session = fake_session()
     provider = KakaoRouteProvider(API_KEY, session=session)
 
     assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART) == 1855  # F3
     assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART) == 1855
-    provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, RECOMMEND)  # F5, 같은 캐시 키
+    provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, RECOMMEND)  # F5
     provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, ROUTE_OPTIONS["time"])
     provider.get_route_summary(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART, ROUTE_OPTIONS["time"])
 
-    assert session.get.call_count == 2  # recommend 1회 + time 1회
-    assert len(provider._cache) == 2
+    assert session.get.call_count == provider.request_count == 5
 
 
-def test_graph_lookups_do_not_change_f3_f5_cache_behaviour():
+def test_graph_and_f3_lookups_of_the_same_slot_each_call_api():
     session = fake_session()
     provider = KakaoRouteProvider(API_KEY, session=session)
     collect(provider)  # 그래프가 먼저 같은 슬롯을 조회해도
@@ -93,7 +79,7 @@ def test_graph_lookups_do_not_change_f3_f5_cache_behaviour():
     provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART)
     provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, DEPART)
 
-    assert session.get.call_count == calls + 1  # F3는 처음 한 번 부르고 그다음은 캐시
+    assert session.get.call_count == calls + 2
 
 
 def test_graph_requests_use_same_parameters_as_summary_lookup():
@@ -156,4 +142,3 @@ def test_api_with_kakao_provider_has_no_response_cache():
     assert first.status_code == second.status_code == 200
     assert first.json()[0]["points"][3] == {"departTime": "2026-11-05T08:00:00+09:00", "durationMin": 31}
     assert session.get.call_count == 14
-    assert provider._cache == {}

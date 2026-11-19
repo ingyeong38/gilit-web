@@ -171,29 +171,28 @@ def test_search_after_deleting_history_is_stored_again(env):
     assert len(history(env.alice)) == 1
 
 
-# --- 캐시 적중 ---
+# --- 같은 조건 재검색 (응답 캐시 없음) ---
 
 
-def test_cache_hit_is_recorded_with_resolved_coordinates_and_same_rule(env):
-    first = search(env.alice)
+def test_repeated_search_is_recorded_with_resolved_coordinates_and_same_rule(env):
+    search(env.alice)
     env.history_clock.now = NOW + timedelta(minutes=2)
-    second = search(env.alice)  # 5분 안 → 저장 안 함
+    search(env.alice)  # 5분 안 → 저장 안 함
     env.history_clock.now = NOW + timedelta(minutes=6)
-    third = search(env.alice)  # 캐시 적중이지만 5분이 지남 → 저장
+    search(env.alice)  # 5분이 지남 → 저장
 
-    assert [r.headers["X-Gilit-Route-Cache"] for r in (first, second, third)] == ["MISS", "HIT", "HIT"]
     attached = env.rows_of(env.alice_id)
     assert len(attached) == 2
     card = history(env.alice)[0]
-    assert (card["fromLat"], card["toLng"]) == (35.2, 129.01)  # 캐시 적중이어도 처음 확정한 좌표를 쓴다
+    assert (card["fromLat"], card["toLng"]) == (35.2, 129.01)
 
 
-def test_cache_hit_of_anonymous_search_is_not_recorded(env):
+def test_repeated_anonymous_search_is_not_recorded(env):
     anonymous = env.anonymous()
     search(anonymous)
     response = search(anonymous)
 
-    assert response.headers["X-Gilit-Route-Cache"] == "HIT"
+    assert response.status_code == 200
     assert env.rows() == []
 
 

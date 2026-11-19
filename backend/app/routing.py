@@ -59,49 +59,6 @@ def parse_detailed_route(route: dict) -> dict:
     return {"path": path, "durationSec": duration, "distanceKm": round(distance / 1000, 3), "toll": toll}
 
 
-class RouteResultCache:
-    """검증을 마친 전체 응답만 저장한다. 실패는 저장하지 않고 TTL/개수로 제한한다."""
-    def __init__(self, ttl=600, max_entries=64, monotonic=None):
-        import time
-        from collections import OrderedDict
-        from threading import Lock
-        self.ttl, self.max_entries = ttl, max_entries
-        self.monotonic = monotonic or time.monotonic
-        self.items, self.lock = OrderedDict(), Lock()
-
-    def get(self, key, now):
-        routes, _ = self.get_with_meta(key, now)
-        return routes
-
-    def get_with_meta(self, key, now):
-        """(카드 목록, put에 함께 준 meta). 없거나 만료면 (None, None).
-
-        meta는 응답이 아니라 서버가 함께 기억할 값이다 (경로 계산에 쓴 출발지·목적지 좌표 → 검색 기록 저장).
-        """
-        from copy import deepcopy
-        from datetime import datetime
-        with self.lock:
-            item = self.items.get(key)
-            if item is None:
-                return None, None
-            routes, expiry, meta = item
-            if self.monotonic() >= expiry or any(datetime.fromisoformat(route["departTime"]) <= now for route in routes):
-                del self.items[key]
-                return None, None
-            self.items.move_to_end(key)
-            return deepcopy(routes), meta
-
-    def put(self, key, routes, meta=None):
-        from copy import deepcopy
-        if self.ttl <= 0 or sum(len(route["path"]) for route in routes) > 20000:
-            return
-        with self.lock:
-            self.items[key] = (deepcopy(routes), self.monotonic() + self.ttl, meta)
-            self.items.move_to_end(key)
-            while len(self.items) > self.max_entries:
-                self.items.popitem(last=False)
-
-
 # --- 경로 비교 서비스 (F5) ---------------------------------------------------------------
 # 옵션(추천·최단시간·최단거리·무료도로)마다 출발시각 역산 엔진을 돌리고, 확정된 출발시각에 상세 경로를 한 번 받아
 # 카드를 만든다. GET /api/routes(api/routes.py)가 쓴다.

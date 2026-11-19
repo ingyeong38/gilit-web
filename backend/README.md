@@ -83,7 +83,6 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `KAKAO_REST_API_KEY` | 없음 | `kakao`일 때 필수. 카카오 개발자 앱의 REST API 키 |
 | `DEPARTURE_MAX_CALLS` | `8` | 요청 하나당 소요시간 조회 최대 횟수 |
 | `DEPARTURE_SEARCH_WINDOW_MIN` | `360` | 도착 희망 시각 몇 분 전까지 출발시각을 찾을지 |
-| `ROUTE_CACHE_TTL_SEC` | `600` | 카카오 요약 조회 캐시와 경로 비교 응답 캐시의 유지 시간(초). `0`이면 캐시하지 않는다 |
 | `ROUTE_COMPARE_OPTIONS` | `recommend,time,distance,free` | 경로 비교에 쓸 옵션. 적은 순서가 카드 순서다 |
 | `ROUTE_COMPARE_MAX_CALLS` | `6` | 경로 비교의 옵션 하나당 소요시간 조회 상한. 상세 경로 조회는 옵션당 1~2회 따로 든다 |
 | `CORS_ORIGINS` | `http://localhost:5500,http://127.0.0.1:5500` | 웹 API를 부를 수 있는 프론트 출처 (쉼표 구분). `*`는 쓸 수 없다. `/api/*` POST·PATCH·DELETE의 출처 검사도 이 목록과 같은 호스트만 허용한다 |
@@ -139,7 +138,7 @@ API 계약은 `docs/api-spec.md` "즐겨찾기"와 "검색 기록"에 있다. �
 - 출발시각: 한국 시간 `YYYYMMDDHHmm`. 초는 내린다. 도착 희망 시각은 내일 이후로 준다 (미래 운행 정보 API).
 - 이동수단: `car`만 된다. `transit`은 `UnsupportedTravelModeError`("대중교통은 아직 지원하지 않습니다.").
 - 경로 옵션: `get_route_summary(…, option)`은 `summary=true`로 소요시간·거리·통행료(`summary.fare.toll`, 없으면 `None`)만 받는다. 옵션(`RouteOption`, `app/departure/models.py`)은 `priority`(`RECOMMEND`/`TIME`/`DISTANCE`)와 `avoid`(`toll` 등, 여러 개면 `|`로 잇는다)로 정한다. 경로 비교의 4개 옵션은 `ROUTE_OPTIONS`(추천, 최단시간, 최단거리, 무료도로=`avoid=toll`)다. `get_duration`은 추천 옵션의 요약이다. `get_detailed_route(…, priority, avoid)`는 지도용 상세 좌표를 받고 캐시하지 않는다.
-- 캐시: 같은 (출발지, 목적지, 출발시각(분), 경로 옵션)은 프로세스 메모리 LRU 캐시(기본 1,024건)로 다시 부르지 않는다. `/api/departure`와 경로 비교의 추천 옵션은 같은 캐시 항목을 쓴다. 항목은 `ROUTE_CACHE_TTL_SEC`(기본 10분)이 지나면 버려 예측값이 갱신된다. 적중해도 만료 시각은 늘어나지 않는다. 오류는 캐시하지 않는다. 웹 서버는 어댑터 하나를 여러 요청 스레드가 함께 쓰므로 캐시는 잠금 안에서 고친다. 서버 프로세스를 여러 개 띄우면 캐시는 프로세스마다 따로다.
+- 캐시: 응답은 캐시하지 않는다. 카카오모빌리티 약관상 길찾기 응답은 임시로도 캐시·저장할 수 없어, 같은 (출발지, 목적지, 출발시각, 경로 옵션) 조회도 매번 API를 부른다. 요청 하나 안에서 같은 출발시각을 두 번 묻지 않는 것은 엔진의 계산 과정일 뿐 요청 사이에 남지 않는다.
 - 쿼터: 일일 5,000건. 검색 한 번에 최대 `DEPARTURE_MAX_CALLS`(8)회라 하루 약 625회 검색까지 된다. `request_count`로 실제 호출 수를 볼 수 있다.
 - 타임아웃: 10초.
 
@@ -219,11 +218,11 @@ curl -X POST http://127.0.0.1:8000/api/departure \
 
 ## 경로 비교 (`GET /api/routes`, F5)
 
-`app/api/routes.py`(API, 장소 확정, 응답 캐시)와 `app/routing.py`의 `compare_routes`(비교 서비스)가 처리한다. 필드·오류·mock 동작 전체는 `docs/api-spec.md`의 `GET /api/routes`를 본다.
+`app/api/routes.py`(API, 장소 확정)와 `app/routing.py`의 `compare_routes`(비교 서비스)가 처리한다. 필드·오류·mock 동작 전체는 `docs/api-spec.md`의 `GET /api/routes`를 본다.
 
 - 옵션은 `ROUTE_COMPARE_OPTIONS`(기본 추천, 최단시간, 최단거리, 무료도로)다. 옵션마다 `OptionRouteProvider`가 엔진(`DepartureSolver`)의 소요시간 조회를 그 옵션의 카카오 요약 조회로 바꾸고, 확정된 출발시각에 상세 경로를 한 번 받아 카드를 만든다. 엔진 코드는 그대로다.
 - 같은 길로 확인된 옵션은 한 카드의 `options`에 합친다. 무료도로 결과에 통행료가 있으면 그 카드를 뺀다. 일부 옵션이 실패하면 그 카드만 빼고, 이유는 `app.api` 로거로 남긴다 (무료도로 없음은 INFO, 그 밖은 WARNING).
-- 성공한 전체 응답은 `ROUTE_CACHE_TTL_SEC` 동안 최대 64건 저장한다. 응답 헤더 `X-Gilit-Route-Cache: HIT|MISS`로 확인한다.
+- 응답은 캐시하지 않는다 (카카오 약관). 같은 조건을 다시 검색해도 매번 카카오를 부른다. 응답에는 `Cache-Control: no-store`가 붙는다.
 - mock 모드에서도 동작하지만 장소 검색이 없으므로 좌표 파라미터(`fromLat` 등)가 필요하다.
 
 실측 (2026-11-12, `ROUTE_PROVIDER=kakao`, 김해시청 → 동의대학교, 다음 날 09:00 도착, 여유 10분, 좌표 전달):

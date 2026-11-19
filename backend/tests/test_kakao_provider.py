@@ -209,20 +209,18 @@ def test_malformed_response_raises_provider_error(bad):
         provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
 
 
-def test_cache_reuses_same_route_and_minute():
-    provider, session = make_provider(ok(duration=1800), ok(duration=2000), ok(duration=2100), ok(duration=2200))
+def test_same_lookup_calls_api_every_time():
+    """카카오 약관상 응답을 캐시하지 않는다. 같은 조회도 매번 API를 부른다."""
+    provider, session = make_provider(ok(duration=1800), ok(duration=2000), ok(duration=2100))
 
     first = provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
-    # 같은 분(초는 내림), 같은 순간의 다른 시간대 표현은 캐시를 쓴다.
     again = provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10) + timedelta(seconds=30))
     same_instant_utc = provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, datetime(2026, 11, 4, 23, 10, tzinfo=timezone.utc))
-    assert first == again == same_instant_utc == 1800
-    assert session.get.call_count == 1
 
-    # 출발시각, 방향이 다르면 새로 조회한다.
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 11)) == 2000
-    assert provider.get_duration(DONGEUI_UNIV, GIMHAE_CITY_HALL, kst(5, 8, 10)) == 2100
+    assert (first, again, same_instant_utc) == (1800, 2000, 2100)
     assert session.get.call_count == provider.request_count == 3
+    # 초는 내리고, 같은 순간의 다른 시간대 표현은 같은 한국 시간 분으로 보낸다.
+    assert {sent(session, i)[1]["departure_time"] for i in range(3)} == {"202611050810"}
 
 
 def test_errors_are_not_cached():
@@ -234,21 +232,8 @@ def test_errors_are_not_cached():
     assert session.get.call_count == 2
 
 
-def test_cache_evicts_least_recently_used():
-    provider, session = make_provider(ok(1000), ok(1100), ok(1200), ok(1300), cache_size=2)
-
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 0))  # A
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 1))  # B
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 0))  # A 적중 -> B가 가장 오래됨
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 2))  # C, B를 버림
-    assert session.get.call_count == 3
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 0)) == 1000  # A는 남아 있음
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 1)) == 1300  # B는 다시 조회
-    assert session.get.call_count == 4
-
-
-def test_cache_is_shared_across_solver_requests(clock):
-    """같은 조건을 다시 검색하면 API를 부르지 않는다 (일일 쿼터 절약)."""
+def test_repeated_solver_requests_call_api_each_time(clock):
+    """같은 조건을 다시 검색해도 이전 응답을 재사용하지 않고 처음과 같은 횟수만큼 다시 부른다."""
     session = Mock(spec=requests.Session)
     session.get.side_effect = lambda url, params, headers, timeout: ok(duration=1800 + int(params["departure_time"][-2:]) * 6)
     provider = KakaoRouteProvider(API_KEY, session=session)
@@ -259,56 +244,15 @@ def test_cache_is_shared_across_solver_requests(clock):
     second = solver.solve(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 9), 10)
 
     assert first.depart_at == second.depart_at
-    assert first.provider_calls <= 8
-    assert session.get.call_count == calls_after_first
+    assert 0 < first.provider_calls <= 8
+    assert session.get.call_count == calls_after_first * 2
+
+
+def test_cache_options_are_not_accepted():
+    with pytest.raises(TypeError):
+        KakaoRouteProvider(API_KEY, cache_ttl_sec=600)
 
 
 def test_requires_api_key():
     with pytest.raises(ValueError, match="KAKAO_REST_API_KEY"):
         KakaoRouteProvider("")
-
-
-class FakeMonotonic:
-    def __init__(self) -> None:
-        self.now = 1000.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
-def test_cache_expires_after_ttl():
-    clock = FakeMonotonic()
-    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=600, monotonic=clock)
-
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1800
-    clock.now += 599
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1800  # 아직 유효
-    clock.now += 1
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1900  # 만료되어 다시 조회
-    assert session.get.call_count == 2
-
-
-def test_cache_hit_does_not_extend_ttl():
-    clock = FakeMonotonic()
-    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=600, monotonic=clock)
-
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
-    clock.now += 500
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))  # 적중해도 만료 시각은 그대로
-    clock.now += 100
-    assert provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10)) == 1900
-    assert session.get.call_count == 2
-
-
-def test_zero_ttl_disables_cache():
-    provider, session = make_provider(ok(duration=1800), ok(duration=1900), cache_ttl_sec=0)
-
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
-    provider.get_duration(GIMHAE_CITY_HALL, DONGEUI_UNIV, kst(5, 8, 10))
-
-    assert session.get.call_count == 2
-
-
-def test_negative_ttl_is_rejected():
-    with pytest.raises(ValueError, match="cache_ttl_sec"):
-        KakaoRouteProvider(API_KEY, cache_ttl_sec=-1)
