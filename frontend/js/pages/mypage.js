@@ -1,6 +1,6 @@
 // 마이페이지 화면. 데이터·계산은 /js/mypage.js에 있고, 이 파일은 화면 그리기와 이벤트만 맡는다.
 // 공유 상태가 있는 모듈(auth.js 등)은 다른 화면과 같은 인스턴스를 써야 하므로 ?v=를 붙이지 않는다.
-import { getUser, onAuthChange, recheckAuth } from "/js/auth.js";
+import { getUser, onAuthChange, recheckAuth, setUser } from "/js/auth.js";
 import { requirePageAccess } from "/js/guard.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { openModal } from "/js/components/modal.js";
@@ -20,7 +20,7 @@ import {
   saveNickname,
   validateNickname,
   weeklySummary,
-} from "/js/mypage.js?v=mypage-20261119-4";
+} from "/js/mypage.js?v=mypage-20261119-5";
 
 const PLACE_ICONS = { 집: "home", 회사: "wallet", 학교: "star" };
 
@@ -118,7 +118,7 @@ function openNicknameModal(trigger) {
   // 규칙은 바꿀 때만 검사한다: 모달을 연 직후(현재 닉네임)에는 오류를 보이지 않고, 입력을 고친 뒤부터 알린다.
   // 입력 중에는 규칙 위반(문자·연속 공백·길이·한글/영문/숫자 포함)을 바로 알리고, 빈 값·같은 값은 저장 버튼을 막는 것으로 알린다.
   let edited = false;
-  const LIVE_CODES = ["invalidChar", "consecutiveSpaces", "length", "needLetter"];
+  const LIVE_CODES = ["chars", "spaces", "length", "required"];
   const update = ({ showAll = false } = {}) => {
     const length = nicknameLength(input.value);
     const result = validateNickname(input.value, { current: nickname });
@@ -149,15 +149,18 @@ function openNicknameModal(trigger) {
     setSaving(true);
     try {
       const saved = await saveNickname(result.value);
-      nickname = typeof saved === "string" && saved.trim() ? saved.trim() : result.value;
+      // 공유 사용자 상태를 바꿔 헤더도 바로 바뀌게 한다. 이 화면은 아래 onAuthChange가 인사말·아바타를 다시 그린다.
+      nickname = typeof saved?.name === "string" && saved.name ? saved.name : result.value;
+      const current = getUser();
+      if (current && (!saved?.id || String(saved.id) === current.id)) setUser({ ...current, ...saved, id: current.id, name: nickname });
       renderProfile();
       if (element.isConnected) close();
       restoreFocus();
-      showToast("닉네임을 변경했어요. 서버 저장은 아직 연결 전이라 이 화면에만 반영돼요.");
+      showToast("닉네임을 변경했어요.");
     } catch (error) {
       if (!element.isConnected) return;
       setSaving(false);
-      errorEl.textContent = error?.message || "닉네임을 저장하지 못했어요. 다시 시도해 주세요.";
+      errorEl.textContent = error?.message || "닉네임을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.";
       input.setAttribute("aria-invalid", "true");
       input.focus();
     }
@@ -253,7 +256,12 @@ onAuthChange(() => {
     loadStatsSection.cancel();
     return;
   }
-  if (user.id !== ownerId) init();
+  if (user.id !== ownerId) { init(); return; }
+  // 같은 계정의 닉네임이 바뀌었으면(이 화면의 저장, 다른 화면의 갱신) 인사말·아바타·현재 닉네임을 다시 그린다.
+  if (user.name && user.name !== nickname) {
+    nickname = user.name;
+    renderProfile();
+  }
 });
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) location.reload(); // 즐겨찾기 화면과 같은 방식: 초기 인증 검사부터 다시

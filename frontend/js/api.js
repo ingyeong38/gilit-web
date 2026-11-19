@@ -11,10 +11,12 @@ const MOCK_USERS_KEY = "gilit:mock:users";
 const LOGIN_FAILED = "이메일 또는 비밀번호가 올바르지 않습니다.";
 
 // 서버가 { "message": "..." }로 보낸 오류 문구를 화면에 그대로 보여 줄 수 있게 담는다.
+// code는 서버가 함께 보낸 실패 코드다 (예: 닉네임 검증 "chars"). 없으면 undefined.
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -30,7 +32,8 @@ async function requestJson(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new ApiError(body?.message || `요청 실패: ${url} (${response.status})`, response.status);
+    throw new ApiError(body?.message || `요청 실패: ${url} (${response.status})`, response.status,
+      typeof body?.code === "string" ? body.code : undefined);
   }
   return response.status === 204 ? null : response.json();
 }
@@ -217,6 +220,25 @@ export async function logoutSession() {
 // 인증은 실제 서버 세션으로만 확인한다. 소셜 인증 mock은 제공하지 않는다.
 export function getSessionUser() {
   return requestJson(buildUrl("/auth/me"));
+}
+
+// 닉네임 변경 (PATCH /api/auth/me { name }). 갱신된 사용자({ id, name, email, provider })를 돌려준다.
+// 규칙 위반은 400 + { message, code }다 (docs/api-spec.md "닉네임 변경"). 화면은 code로 문구를 고른다.
+export async function updateNickname(name) {
+  if (!USE_MOCK) {
+    return requestJson(buildUrl("/auth/me"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  }
+  // mock: 이 브라우저의 mock 계정 목록에 저장한다. 검증은 화면(mypage.js validateNickname)이 이미 했다.
+  const current = getUser();
+  if (!current) throw new ApiError("로그인이 필요합니다.", 401);
+  const nickname = String(name).normalize("NFC").trim();
+  const users = readMockUsers().map((user) => (user.id === current.id ? { ...user, name: nickname } : user));
+  localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
+  return { ...current, name: nickname };
 }
 
 export function getSocialLoginUrl(provider) {

@@ -15,12 +15,14 @@ from typing import TYPE_CHECKING, Any
 from app.auth.errors import (
     EMAIL_TAKEN,
     LOGIN_FAILED,
+    LOGIN_REQUIRED,
     TOO_MANY_REQUESTS,
     AuthError,
     EmailAlreadyExistsError,
     SocialAccountExistsError,
     SocialEmailConflictError,
 )
+from app.auth.nickname import normalize_nickname
 from app.auth.oauth import OAuthProfile
 from app.auth.passwords import PasswordHasher
 from app.auth.rate_limit import RateLimiter, retry_after_header
@@ -160,6 +162,21 @@ class AuthService:
         )
         self.users.record_login(user.id, now)
         return LoginResult(CurrentUser(user, login_provider), token)
+
+    # --- 내 정보 ---
+
+    def change_nickname(self, current: CurrentUser, payload: dict[str, Any]) -> CurrentUser:
+        """닉네임을 바꾼다 (PATCH /api/auth/me). 규칙은 요청 값에만 적용한다 (app/auth/nickname.py).
+
+        현재 닉네임과 같으면 저장하지 않고 그대로 돌려준다. 중복 닉네임은 허용한다.
+        """
+        nickname = normalize_nickname(payload.get("name"))
+        if nickname == current.user.nickname:
+            return current
+        user = self.users.update_nickname(current.user.id, nickname)
+        if user is None:  # 그사이 탈퇴 등으로 사용자가 없어졌다
+            raise AuthError(401, LOGIN_REQUIRED)
+        return CurrentUser(user, current.login_provider)
 
     def logout(self, token: str | None) -> None:
         if token:

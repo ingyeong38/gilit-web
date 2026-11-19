@@ -55,6 +55,13 @@ class HistoryResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class NicknameErrorResponse(BaseModel):
+    message: str = Field(description="사용자에게 그대로 보여 줄 수 있는 한국어 문장")
+    code: Literal["empty", "length", "chars", "spaces", "required"] = Field(
+        description="닉네임 규칙 실패 코드. 프론트는 이 값으로 문구를 고른다 (frontend/js/mypage.js NICKNAME_MESSAGES)"
+    )
+
+
 class UserResponse(BaseModel):
     """회원 API가 돌려주는 사용자 객체 (docs/api-spec.md "사용자 객체")."""
 

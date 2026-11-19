@@ -115,6 +115,11 @@ class MySQLUserStore:
         with self.pool.connection() as conn, conn.cursor() as cur:
             cur.execute("UPDATE users SET last_login_at = %s WHERE id = %s", (to_db(now), user_id))
 
+    def update_nickname(self, user_id: int, nickname: str) -> User | None:
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE users SET nickname = %s WHERE id = %s", (nickname, user_id))
+        return self.get_by_id(user_id)
+
 
 class MySQLSessionStore:
     def __init__(self, pool: ConnectionPool) -> None:

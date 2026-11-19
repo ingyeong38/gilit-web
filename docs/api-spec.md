@@ -15,6 +15,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | POST | `/api/auth/login` | 이메일 로그인 (**구현됨**) | 불필요 | `loginWithEmail` | localStorage |
 | POST | `/api/auth/logout` | 로그아웃 (**구현됨**) | 불필요 | `logoutSession` | 호출 안 함 |
 | GET | `/api/auth/me` | 내 정보 (**구현됨**) | **필요** | `getSessionUser` | sessionStorage (`gilit:mock:session`) |
+| PATCH | `/api/auth/me` | 닉네임 변경 (**구현됨**) | **필요** | `updateNickname` | localStorage (`gilit:mock:users`) |
 | GET | `/api/auth/{google\|kakao}/start` | 소셜 로그인 시작, 제공자 화면으로 302 (**구현됨**) | 불필요 | `getSocialLoginUrl` (페이지 이동) | 없음 |
 | GET | `/api/auth/{google\|kakao}/callback` | 소셜 로그인 콜백, 프론트로 302 (**구현됨**) | 불필요 | 제공자가 부름 | 없음 |
 | GET | `/api/favorites` | 즐겨찾기 목록 (**구현됨**) | **필요** | `getFavorites` | `favorites.json` |
@@ -487,6 +488,52 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 새로고침 등으로 서버 세션 기준의 로그인 상태를 확인할 때 쓴다. 응답: `200` + 사용자 객체
 
 오류: `401` "로그인이 필요합니다." (세션 없음, 만료, 모르는 토큰 모두)
+
+### PATCH /api/auth/me (닉네임 변경)
+
+로그인: **필요**. 구현: `backend/app/api/auth.py`, 규칙: `backend/app/auth/nickname.py` (프론트 `frontend/js/mypage.js`와 같은 규칙)
+
+요청:
+
+```json
+{ "name": "길잇_01" }
+```
+
+응답: `200` + 갱신된 사용자 객체 (`provider`는 이번 세션의 로그인 방식 그대로)
+
+```json
+{ "id": "1", "name": "길잇_01", "email": "user@example.com", "provider": "google" }
+```
+
+규칙 (서버와 프론트가 같은 문장을 주석으로 둔다)
+
+- NFC 정규화 후 앞뒤 공백 제거, 길이 2~20자(글자 수 기준)
+- 허용 문자: 한글 완성형(가-힣), 영문(A-Za-z), 숫자(0-9), 공백(스페이스), 특수문자 - _ ! # 만
+- 한글·영문·숫자 중 최소 1자 포함, 연속 공백 불허
+- 불허: 그 외 문자, 이모지, 한글 자모 단독, 탭·줄바꿈 등 스페이스 이외의 공백 문자
+- 중복 닉네임 허용
+- 규칙은 변경 요청 값에만 적용한다(기존 닉네임은 검사하지 않는다)
+
+동작
+
+- 저장하는 값은 정규화·앞뒤 공백 제거 뒤의 값이다. 앞뒤에서 지우는 문자는 JavaScript `String.prototype.trim()`과 같은 집합이다.
+- 현재 닉네임과 같은 값이면 저장하지 않고 `200` (현재 사용자 그대로).
+- 같은 사용자의 다른 세션에도 바로 반영된다 (`GET /api/auth/me`가 DB 값을 읽는다).
+- 소셜 로그인은 처음 가입할 때만 제공자 이름을 닉네임으로 쓴다. 다시 로그인해도 바꾼 닉네임을 덮어쓰지 않는다.
+
+오류: 규칙 위반은 `400` + `{ "message", "code" }`. 검사 순서는 아래 표의 위에서 아래다.
+
+| `code` | 언제 | `message` |
+| --- | --- | --- |
+| `empty` | 빈 값, 공백만, `name` 없음, 문자열이 아님 | 닉네임을 입력해 주세요. |
+| `chars` | 허용 문자 밖 (이모지, 자모 단독, `.` `@` 등, 탭·줄바꿈·전각 공백) | 사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요. |
+| `spaces` | 공백 두 칸 이상 연속 | 공백은 한 칸씩만 쓸 수 있어요. |
+| `length` | 2자 미만 또는 20자 초과 | 닉네임은 2~20자로 입력해 주세요. |
+| `required` | 한글·영문·숫자가 하나도 없음 (`--`, `!#` 등) | 한글, 영문, 숫자를 1자 이상 포함해 주세요. |
+
+그 밖의 오류: `400` "요청 본문은 JSON 객체여야 합니다.", `401` "로그인이 필요합니다.", `403` 허용되지 않은 출처.
+
+서버·프론트 결과가 같은지는 공용 사례 파일 `frontend/tests/fixtures/nickname-cases.json`을 `backend/tests/test_nickname.py`와 `frontend/tests/mypage.test.mjs`가 함께 읽어 확인한다.
 
 ### 소셜 로그인 (Google, 카카오)
 

@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Request, Response
 
-from app.api.schemas import ErrorResponse, UserResponse
+from app.api.schemas import ErrorResponse, NicknameErrorResponse, UserResponse
 from app.auth import AuthService, CurrentUser, User
 from app.auth.errors import LOGIN_REQUIRED, AuthError
 from app.auth.service import SESSION_TTL
@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/auth", tags=["회원"])
 
 SIGNUP_EXAMPLE = {"name": "길잇", "email": "user@example.com", "password": "gilit1234", "agreeTerms": True, "agreePrivacy": True}
 LOGIN_EXAMPLE = {"email": "user@example.com", "password": "gilit1234"}
+NICKNAME_EXAMPLE = {"name": "길잇_01"}
 ERROR_400 = {"model": ErrorResponse, "description": "입력 검증 실패"}
 ERROR_403 = {"model": ErrorResponse, "description": "허용되지 않은 출처 (Origin 검사)"}
 ERROR_429 = {"model": ErrorResponse, "description": "요청 횟수 제한 초과 (Retry-After 헤더)"}
@@ -131,3 +132,26 @@ def logout(request: Request, auth: Annotated[AuthService, Depends(get_auth)]) ->
 def me(current: Annotated[CurrentUser, Depends(require_user)]) -> UserResponse:
     """서버 세션 기준의 로그인 상태. 비로그인은 항상 401이다 (프론트는 401만 비로그인으로 본다)."""
     return user_response(current.user, current.login_provider)
+
+
+@router.patch(
+    "/me",
+    summary="닉네임 변경",
+    response_model=UserResponse,
+    responses={
+        400: {"model": NicknameErrorResponse, "description": "닉네임 규칙 위반 (code: empty, length, chars, spaces, required)"},
+        401: {"model": ErrorResponse, "description": "로그인이 필요합니다."},
+        403: ERROR_403,
+    },
+)
+def update_me(
+    current: Annotated[CurrentUser, Depends(require_user)],
+    auth: Annotated[AuthService, Depends(get_auth)],
+    payload: Annotated[dict[str, Any], Body(openapi_examples={"기본": {"value": NICKNAME_EXAMPLE}})],
+) -> UserResponse:
+    """닉네임(name)을 바꾼다. NFC 정규화·앞뒤 공백 제거 뒤 저장하고 갱신된 사용자를 돌려준다.
+
+    현재 닉네임과 같은 값도 200(변경 없음). 규칙은 app/auth/nickname.py와 docs/api-spec.md "닉네임 변경".
+    """
+    updated = auth.change_nickname(current, payload)
+    return user_response(updated.user, updated.login_provider)

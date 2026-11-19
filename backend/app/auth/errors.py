@@ -18,11 +18,12 @@ ORIGIN_FORBIDDEN = "허용되지 않은 출처의 요청입니다."
 class AuthError(Exception):
     """인증 처리 중 사용자에게 알려야 하는 실패. status와 message로 응답한다."""
 
-    def __init__(self, status: int, message: str, headers: dict[str, str] | None = None) -> None:
+    def __init__(self, status: int, message: str, headers: dict[str, str] | None = None, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.message = message
         self.headers = headers
+        self.code = code  # 프론트가 문구를 고를 때 쓰는 실패 코드 (닉네임 검증 등). 없으면 응답에 넣지 않는다
 
 
 class EmailAlreadyExistsError(Exception):

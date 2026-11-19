@@ -9,7 +9,7 @@ const plain = (source) => source.replace(/^import[\s\S]*?from ["'][^"']+["'];\n/
 const json = (value) => JSON.parse(JSON.stringify(value));
 const source = plain(await read('../js/mypage.js'));
 const load = (useMockStats = true) => {
-  const ctx = vm.createContext({ USE_MOCK_STATS: useMockStats, setTimeout });
+  const ctx = vm.createContext({ USE_MOCK_STATS: useMockStats, setTimeout, updateNickname: async (name) => ({ id: '1', name, email: null, provider: 'google' }) });
   vm.runInContext(source, ctx);
   return ctx;
 };
@@ -116,12 +116,12 @@ const days = (now) => json(m.lastSevenDays(now));
     assert.equal(result.message, messages[code]);
   };
   for (const value of ['', '   ', '\t', null, undefined, 3]) expectFail(value, 'empty');
-  for (const value of ['--', '!!', '##', '- _', '_ !', '-_!#']) expectFail(value, 'needLetter');
+  for (const value of ['--', '!!', '##', '- _', '_ !', '-_!#']) expectFail(value, 'required');
   for (const value of ['길잇.', '길잇@', '길잇😀', '😀😀', 'ㅋㅋ', '길ㅏ', 'a/b', '<b>', 'a&b', "a'b", 'a"b', '길\t잇', '길\n잇', '길　잇', '길 잇', 'ａｂ']) {
-    expectFail(value, 'invalidChar');
+    expectFail(value, 'chars');
   }
-  expectFail('길  잇', 'consecutiveSpaces');
-  expectFail('a   b', 'consecutiveSpaces');
+  expectFail('길  잇', 'spaces');
+  expectFail('a   b', 'spaces');
   for (const value of ['가', 'a', '1', '가'.repeat(21), 'a'.repeat(21), ` ${'가'.repeat(21)} `]) expectFail(value, 'length');
   expectFail('김서준', 'same', '김서준');
   expectFail(' 김서준 ', 'same', '김서준');
@@ -131,9 +131,9 @@ const days = (now) => json(m.lastSevenDays(now));
   assert.deepEqual(messages, {
     empty: '닉네임을 입력해 주세요.',
     length: '닉네임은 2~20자로 입력해 주세요.',
-    invalidChar: '사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.',
-    consecutiveSpaces: '공백은 한 칸씩만 쓸 수 있어요.',
-    needLetter: '한글, 영문, 숫자를 1자 이상 포함해 주세요.',
+    chars: '사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.',
+    spaces: '공백은 한 칸씩만 쓸 수 있어요.',
+    required: '한글, 영문, 숫자를 1자 이상 포함해 주세요.',
     same: '현재 닉네임과 같아요.',
   });
   // 모달: 안내 문구 표시, 열자마자(현재 닉네임)는 오류를 보이지 않고 고친 뒤부터 검사
@@ -142,6 +142,30 @@ const days = (now) => json(m.lastSevenDays(now));
   assert.match(pageSource, /<p id="nickname-desc">[^<]*\$\{escapeHtml\(NICKNAME_HELP_TEXT\)\}<\/p>/);
   assert.match(pageSource, /input\.addEventListener\("input", \(\) => \{ edited = true; update\(\); \}\);/);
   assert.match(pageSource, /showAll \|\| \(edited && LIVE_CODES\.includes\(result\.code\)\)/);
+  assert.match(pageSource, /const LIVE_CODES = \["chars", "spaces", "length", "required"\];/);
+
+  // 서버와 같은 결과: 공용 사례 파일 (backend/tests/test_nickname.py도 같은 파일을 읽는다)
+  const shared = JSON.parse(await read('./fixtures/nickname-cases.json')).cases;
+  assert.ok(shared.length >= 40);
+  for (const item of shared) {
+    const result = v(item.input);
+    if (item.ok) assert.deepEqual(result, { ok: true, value: item.value, code: '', message: '' }, JSON.stringify(item.input));
+    else assert.deepEqual([result.ok, result.code, result.message], [false, item.code, messages[item.code]], JSON.stringify(item.input));
+  }
+  // NFC: 자모가 분리된(NFD) 한글도 완성형으로 맞춰 통과하고, 같은 닉네임 판단도 정규화 뒤에 한다
+  const nfd = '길잇 사용자'.normalize('NFD');
+  assert.notEqual(nfd, '길잇 사용자');
+  assert.deepEqual(v(nfd), { ok: true, value: '길잇 사용자', code: '', message: '' });
+  assert.equal(v(nfd, '길잇 사용자').code, 'same');
+  assert.equal(m.nicknameLength(nfd), 6);
+  // 서버 오류 → 모달 문구
+  for (const code of ['empty', 'length', 'chars', 'spaces', 'required']) {
+    assert.equal(m.nicknameErrorMessage({ status: 400, code, message: '서버 문구' }), messages[code], code);
+  }
+  assert.equal(m.nicknameErrorMessage({ status: 401, message: '로그인이 필요합니다.' }), '로그인이 필요합니다.');
+  assert.equal(m.nicknameErrorMessage({ status: 400, code: 'unknown', message: '다른 400 문구' }), '다른 400 문구');
+  assert.equal(m.nicknameErrorMessage({ status: 503, message: 'DB 오류' }), '닉네임을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
+  assert.equal(m.nicknameErrorMessage(new TypeError('Failed to fetch')), '닉네임을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
   console.log('PASS: 닉네임 규칙(허용 문자·한글/영문/숫자 포함·연속 공백·2~20자·앞뒤 공백 제거·현재와 같음), 규칙별 문구, 모달 안내·변경 시 검사');
 }
 
@@ -191,7 +215,16 @@ const days = (now) => json(m.lastSevenDays(now));
   first[0].name = '변경';
   assert.notEqual((await m.loadFavorites())[0].name, '변경', '복사본을 돌려준다');
   assert.ok((await m.loadFavorites()).some((p) => p.address === null), 'mock에 주소 없는 장소가 있다 (대체 문구 확인용)');
-  assert.equal(await m.saveNickname('새이름'), '새이름');
+  // 닉네임 저장: api.js updateNickname(PATCH /api/auth/me)을 부르고 갱신된 사용자를 돌려준다. 오류는 모달 문구로 바꿔 던진다
+  const sent = [];
+  assert.deepEqual(json(await m.saveNickname('새이름', { update: async (name) => { sent.push(name); return { id: '7', name, email: null, provider: 'kakao' }; } })),
+    { id: '7', name: '새이름', email: null, provider: 'kakao' });
+  assert.deepEqual(sent, ['새이름']);
+  assert.equal((await m.saveNickname('기본경로')).name, '기본경로', '기본은 api.js updateNickname');
+  await assert.rejects(m.saveNickname('길잇.', { update: async () => { throw Object.assign(new Error('서버'), { status: 400, code: 'chars' }); } }),
+    (error) => error.message === '사용할 수 없는 문자가 있어요. 한글, 영문, 숫자, 공백, - _ ! #만 쓸 수 있어요.' && error.code === 'chars' && error.status === 400);
+  await assert.rejects(m.saveNickname('길잇', { update: async () => { throw Object.assign(new Error('로그인이 필요합니다.'), { status: 401 }); } }),
+    (error) => error.message === '로그인이 필요합니다.' && error.status === 401);
   let notified;
   assert.equal(m.openFavoriteInSearch({ name: '집' }, { notify: (msg) => { notified = msg; } }), null);
   assert.match(notified, /집/);
@@ -220,7 +253,13 @@ const days = (now) => json(m.lastSevenDays(now));
   assert.match(page, /from "\/js\/mypage\.js\?v=mypage-\d{8}-\d+"/);
   // 캐시 버전: HTML의 CSS·JS와 페이지 스크립트의 import가 같은 값이고, 처음 값(-1)이 아니다
   const versions = new Set([...html.matchAll(/mypage\.(?:css|js)\?v=([\w-]+)"/g), ...page.matchAll(/mypage\.js\?v=([\w-]+)"/g)].map((match) => match[1]));
-  assert.deepEqual([...versions], ['mypage-20261119-4']);
+  assert.deepEqual([...versions], ['mypage-20261119-5']);
+  // 저장 성공: 공유 사용자 상태(setUser)를 바꿔 헤더도 바로 바뀌고, "서버 저장 전" 안내·TODO는 없다
+  assert.match(page, /import \{ getUser, onAuthChange, recheckAuth, setUser \} from "\/js\/auth\.js";/);
+  assert.match(page, /setUser\(\{ \.\.\.current, \.\.\.saved, id: current\.id, name: nickname \}\)/);
+  assert.match(page, /if \(user\.name && user\.name !== nickname\) \{\s*nickname = user\.name;\s*renderProfile\(\);/);
+  assert.doesNotMatch(page + (await read('../js/mypage.js')), /서버 저장(은| 전)|TODO\(닉네임 저장\)/);
+  assert.match(await read('../js/mypage.js'), /import \{ updateNickname \} from "\/js\/api\.js";/);
   // 막대: JS는 비율(--h)만 넣고 높이는 CSS 배율이 정한다
   assert.match(page, /style="--h:\$\{\(summary\.heights\[index\] \/ BAR_MAX_HEIGHT\)\.toFixed\(4\)\}"/);
   assert.equal(vm.runInContext('BAR_MAX_HEIGHT', m), 77);
@@ -245,4 +284,40 @@ const days = (now) => json(m.lastSevenDays(now));
   for (const selector of selectors) assert.match(selector, /page-mypage|\.my-|my-page|nickname-|profile-(edit-row|large-avatar|identity)|edit-profile-button|section-(number|link)/, selector);
   for (const path of ['../js/pages/mypage.js', '../js/mypage.js', '../js/components/header.js', '../js/guard.js', '../js/auth.js']) new vm.Script(plain(await read(path)));
   console.log('PASS: 보호 화면 등록, 로그인 후 마이페이지 복귀, 헤더 "내 정보" 링크, HTML·버전·브랜드 문구, 문법');
+}
+
+// --- api.js 닉네임 변경 호출 (서버 호출은 api.js에만)
+{
+  const utils = vm.createContext({ KAKAO_JS_KEY: '', URLSearchParams });
+  vm.runInContext(plain(await read('../js/utils.js')), utils);
+  const requests = [];
+  let reply;
+  const values = new Map();
+  let user = { id: '7', name: '옛이름', email: null, provider: 'google' };
+  const api = vm.createContext({ ...utils, USE_MOCK: false, USE_MOCK_STATS: true, USE_MOCK_ROUTES: false, BASE_URL: '/api', URLSearchParams,
+    getUser: () => user, localStorage: { getItem: (k) => values.get(k) ?? null, setItem: (k, v) => values.set(k, v) },
+    fetch: async (url, options) => { requests.push({ url, options }); return reply; } });
+  vm.runInContext(plain(await read('../js/api.js')), api);
+  reply = { ok: true, status: 200, json: async () => ({ id: '7', name: '새이름', email: null, provider: 'google' }) };
+  assert.deepEqual(json(await api.updateNickname('새이름')), { id: '7', name: '새이름', email: null, provider: 'google' });
+  assert.equal(requests[0].url, '/api/auth/me');
+  assert.equal(requests[0].options.method, 'PATCH');
+  assert.equal(requests[0].options.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(requests[0].options.body), { name: '새이름' });
+  // 400 + code를 ApiError로 그대로 전달
+  reply = { ok: false, status: 400, json: async () => ({ message: '공백은 한 칸씩만 쓸 수 있어요.', code: 'spaces' }) };
+  await assert.rejects(api.updateNickname('길  잇'), (error) => error.status === 400 && error.code === 'spaces' && error.message === '공백은 한 칸씩만 쓸 수 있어요.');
+  reply = { ok: false, status: 401, json: async () => ({ message: '로그인이 필요합니다.' }) };
+  await assert.rejects(api.updateNickname('새이름'), (error) => error.status === 401 && error.code === undefined);
+  // mock(USE_MOCK): 서버를 부르지 않고 mock 계정 목록에 NFC·앞뒤 공백 제거한 이름을 저장
+  vm.runInContext('USE_MOCK = true', api);
+  values.set('gilit:mock:users', JSON.stringify([{ id: '7', name: '옛이름', email: 'a@b.c' }, { id: '8', name: '남' }]));
+  const count = requests.length;
+  const nfd = '길잇'.normalize('NFD');
+  assert.equal((await api.updateNickname(` ${nfd} `)).name, '길잇');
+  assert.equal(requests.length, count);
+  assert.deepEqual(JSON.parse(values.get('gilit:mock:users')).map((u) => u.name), ['길잇', '남']);
+  user = null;
+  await assert.rejects(api.updateNickname('길잇'), (error) => error.status === 401);
+  console.log('PASS: api.js updateNickname(PATCH /api/auth/me 본문·400 code 전달·401), mock 분기');
 }

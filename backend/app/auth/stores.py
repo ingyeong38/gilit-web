@@ -64,6 +64,10 @@ class UserStore(Protocol):
         """last_login_at을 갱신한다."""
         ...
 
+    def update_nickname(self, user_id: int, nickname: str) -> User | None:
+        """닉네임을 바꾸고 바뀐 사용자를 돌려준다. 사용자가 없으면 None. 값 검증은 호출하는 쪽(app/auth/nickname.py)이 한다."""
+        ...
+
 
 class SessionStore(Protocol):
     def create(self, record: SessionRecord) -> None: ...
@@ -164,6 +168,13 @@ class MemoryUserStore:
         with self._lock:
             if user_id in self._users:
                 self._users[user_id] = replace(self._users[user_id], last_login_at=now)
+
+    def update_nickname(self, user_id: int, nickname: str) -> User | None:
+        with self._lock:
+            if user_id not in self._users:
+                return None
+            self._users[user_id] = replace(self._users[user_id], nickname=nickname)
+            return self._users[user_id]
 
 
 class MemorySessionStore:
