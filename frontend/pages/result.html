@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
-  <link rel="stylesheet" href="/css/pages/result.css?v=aisummary-20261120-2" />
+  <link rel="stylesheet" href="/css/pages/result.css?v=routeshare-20261120-1" />
 </head>
 <body class="duration-result-page">
   <div class="app">
@@ -23,8 +23,12 @@
               <span><i data-icon="clock" data-size="17"></i> <time id="summary-time"></time> 도착</span>
               <span id="summary-buffer"></span>
             </div>
-            <button class="btn btn-secondary" id="share-button" type="button"><i data-icon="link" data-size="17"></i> 경로 공유</button>
+            <button class="btn btn-secondary" id="share-button" type="button"><i data-icon="link" data-size="17"></i> 링크 복사</button>
             <a class="btn btn-secondary" id="edit-link" href="/pages/search.html"><i data-icon="menu" data-size="17"></i> 조건 수정</a>
+          </div>
+          <div class="share-fallback" id="share-fallback" hidden>
+            <label for="share-link">링크를 복사하지 못했어요. 아래 주소를 선택해 직접 복사해 주세요.</label>
+            <div class="share-fallback-row"><input id="share-link" type="text" readonly inputmode="none" spellcheck="false" /><button class="btn btn-secondary" id="share-fallback-close" type="button">닫기</button></div>
           </div>
         </div>
         <div class="results-shell">
@@ -46,6 +50,6 @@
   </div>
 
   <script type="module" src="/js/components/header.js"></script>
-  <script type="module" src="/js/pages/result.js?v=aisummary-20261120-2"></script>
+  <script type="module" src="/js/pages/result.js?v=routeshare-20261120-1"></script>
 </body>
 </html>

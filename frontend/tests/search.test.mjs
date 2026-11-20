@@ -124,6 +124,7 @@ const pageContext = vm.createContext({ ...utils, Date: FixedDate, USE_MOCK: true
   getUser: () => null, initializeAuth: async () => {}, isRedirecting: () => false, onAuthChange() {}, recheckAuth: () => { rechecks++; },
   setTimeout: setTimer, clearTimeout: (id) => timers.delete(id),
   validateSearchConditions: (data) => utils.validateSearchConditions(data, fixedNow),
+  NOTICE_PARAM: 'notice', ARRIVAL_PASSED_NOTICE: 'arrival-passed', // share.js 상수 (지난 도착 시각 안내)
 });
 vm.runInContext(plain(await read('../js/pages/search.js')), pageContext);
 assert.equal(form.elements.from.value, valid.from);
@@ -195,6 +196,29 @@ for (const [address, expected] of [['부산 부산진구 엄광로 176', '부산
   assert.equal(restoreStubs[1].getPlace().lat, 35.1441);
 }
 console.log('PASS: 자동완성 목적지 주소 toAddress 전달(공백 정리·255자 한도·비문자열·제어 문자 거부), 조건 수정 복원');
+
+// 도착 시각이 지난 공유 링크 → 결과 화면이 보낸 길찾기 주소 (share.js retimeSearchUrl): 장소·여유는 채우고 날짜·시각은 기본값,
+// 안내 후 시각 입력칸으로 보낸다. 새로고침 때 다시 뜨지 않게 notice만 주소에서 뺀다.
+{
+  const replaced = [];
+  const retimeToasts = [];
+  let focused = 0;
+  const originalFocus = form.elements.time.focus;
+  form.elements.time.focus = () => { focused += 1; };
+  const query = new URLSearchParams({ from: valid.from, to: valid.to, toLat: '35.1441', toLng: '129.0336', buffer: '15', notice: 'arrival-passed' });
+  const retimeContext = vm.createContext({ ...pageContext, location: { search: '?' + query, pathname: '/pages/search.html', hash: '', assign() {} },
+    history: { state: null, replaceState: (state, title, url) => replaced.push(url) }, showToast: (message) => retimeToasts.push(message),
+    setupAutocomplete: () => { let place = null; return { close() {}, getPlace() { return place; }, setPlace(value) { place = value; } }; } });
+  vm.runInContext(plain(await read('../js/pages/search.js')), retimeContext);
+  assert.equal(form.elements.from.value, valid.from); assert.equal(form.elements.to.value, valid.to);
+  assert.equal(form.elements.time.value, '09:00'); // 기본 시각 (다시 고른다)
+  assert.deepEqual(retimeToasts, ['도착 희망 시각이 지나 다시 선택해야 해요']);
+  assert.equal(focused, 1);
+  assert.equal(replaced.length, 1);
+  assert(!replaced[0].includes('notice') && replaced[0].includes('buffer=15') && replaced[0].startsWith('/pages/search.html?'));
+  form.elements.time.focus = originalFocus;
+  console.log('PASS: 지난 도착 시각 링크 → 길찾기 화면 안내·시각 입력칸 이동·notice 제거');
+}
 
 // 즐겨찾기 "여기서 출발"로 들어온 경우: 쿼리의 출발지 좌표를 선택된 장소로 복원해 결과 화면(경로 요청)에 fromLat·fromLng를 싣는다.
 // 자동완성처럼 이름이 입력칸과 같을 때만 선택값을 돌려주는 모의 객체를 쓴다 (실제 getPlace와 같은 규칙).
