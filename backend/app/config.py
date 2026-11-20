@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
+from app.ai_summary.client import GeminiClient
 from app.auth.oauth import GoogleOAuthClient, KakaoOAuthClient, MockOAuthClient, OAuthClient
 from app.auth.service import AUTH_STORES
 from app.db import MySQLConfig
@@ -64,6 +65,10 @@ class Settings:
     kakao_login_client_secret: str | None = field(default=None, repr=False)
     oauth_redirect_base: str | None = None  # 예: http://localhost:8000. 제공자 콘솔에 등록한 주소와 같아야 한다
     oauth_mock: bool = False  # 외부 호출 없는 가짜 소셜 로그인. AUTH_STORE=memory에서만 쓸 수 있다
+    # AI 경로 요약 (POST /api/routes/summary). 키나 모델이 없으면 Gemini를 부르지 않고 rule 요약을 돌려준다.
+    gemini_api_key: str | None = field(default=None, repr=False)
+    gemini_model: str | None = None
+    ai_summary_timeout_sec: float = 6  # Gemini 요청 제한 시간(초). 프론트 제한 10초보다 짧게
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -100,6 +105,9 @@ class Settings:
             kakao_login_client_secret=env.get("KAKAO_LOGIN_CLIENT_SECRET", "").strip() or None,
             oauth_redirect_base=_redirect_base_env(env),
             oauth_mock=_bool_env(env, "OAUTH_MOCK", cls.oauth_mock),
+            gemini_api_key=env.get("GEMINI_API_KEY", "").strip() or None,
+            gemini_model=env.get("GEMINI_MODEL", "").strip() or None,
+            ai_summary_timeout_sec=_positive_float_env(env, "AI_SUMMARY_TIMEOUT_SEC", cls.ai_summary_timeout_sec),
         )
 
     def mysql_config(self) -> MySQLConfig:
@@ -149,6 +157,13 @@ def create_route_provider(settings: Settings) -> RouteProvider:
     if not settings.kakao_rest_api_key:
         raise ValueError("ROUTE_PROVIDER=kakao에는 KAKAO_REST_API_KEY 환경변수가 필요합니다.")
     return KakaoRouteProvider(settings.kakao_rest_api_key)
+
+
+def create_summary_client(settings: Settings) -> GeminiClient | None:
+    """AI 요약용 Gemini 클라이언트. 키나 모델이 없으면 None (앱은 시작하고 요약은 rule로 돌려준다)."""
+    if not (settings.gemini_api_key and settings.gemini_model):
+        return None
+    return GeminiClient(settings.gemini_api_key, settings.gemini_model, timeout=settings.ai_summary_timeout_sec)
 
 
 def create_oauth_clients(settings: Settings) -> dict[str, OAuthClient]:

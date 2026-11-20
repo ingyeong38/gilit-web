@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.ai_summary.errors import SummaryRequestError
 from app.auth.errors import AuthError
 from app.favorites.errors import FavoriteError
 from app.history.errors import HistoryError
@@ -87,6 +88,13 @@ INVALID_MESSAGES = {
     "arrive_at": "도착 희망 시각은 ISO 8601 형식이어야 합니다 (예: 2026-11-06T09:00:00+09:00).",
     "buffer_min": "여유시간은 0, 5, 10, 15분 중 하나여야 합니다.",
     "travel_mode": "이동수단은 car 또는 transit이어야 합니다.",
+    # POST /api/routes/summary. 여러 값을 함께 보는 규칙은 app/ai_summary/service.py가 code와 함께 정한다.
+    "routes": "routes는 경로 카드 객체의 배열이어야 합니다.",
+    "departTime": "경로의 출발시각은 시간대가 있는 ISO 8601 형식이어야 합니다 (예: 2026-11-06T08:12:00+09:00).",
+    "arriveTime": "경로의 도착시각은 시간대가 있는 ISO 8601 형식이어야 합니다 (예: 2026-11-06T08:50:00+09:00).",
+    "durationMin": "경로의 소요시간은 0~1440 사이의 정수(분)여야 합니다.",
+    "distanceKm": "경로의 거리는 0~2000 사이의 숫자(km)여야 합니다.",
+    "toll": "경로의 통행료는 0 이상의 정수(원) 또는 null이어야 합니다.",
 }
 PLACE_PREFIX = {"origin": "출발지 ", "destination": "목적지 "}
 
@@ -163,6 +171,11 @@ async def handle_history_error(request: Request, error: HistoryError) -> JSONRes
     return _message(error.status, error.message)
 
 
+async def handle_summary_request_error(request: Request, error: SummaryRequestError) -> JSONResponse:
+    # 요약 요청 검증 문구는 app/ai_summary/service.py에서 정한 사용자용 문장이다. 입력 값은 넣지 않는다.
+    return JSONResponse(status_code=error.status, content={"message": error.message, "code": error.code})
+
+
 async def handle_unexpected_error(request: Request, error: Exception) -> JSONResponse:
     logger.exception("처리하지 못한 오류: %s %s", request.method, request.url.path)
     return _message(500, INTERNAL_ERROR_MESSAGE)
@@ -173,6 +186,7 @@ def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AuthError, handle_auth_error)
     app.add_exception_handler(FavoriteError, handle_favorite_error)
     app.add_exception_handler(HistoryError, handle_history_error)
+    app.add_exception_handler(SummaryRequestError, handle_summary_request_error)
     app.add_exception_handler(DepartureError, handle_departure_error)
     app.add_exception_handler(RouteProviderError, handle_route_provider_error)
     app.add_exception_handler(StarletteHTTPException, handle_http_error)

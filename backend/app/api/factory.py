@@ -18,7 +18,9 @@ from app.api.routes import resolve_place
 from app.auth import AuthService, create_auth_service
 from app.auth.oauth import OAuthClient
 from app.auth.oauth_state import UsedStates
-from app.config import Settings, create_oauth_clients, create_route_provider, load_env_files
+from app.ai_summary import GeminiClient
+from app.api import summary as summary_api
+from app.config import Settings, create_oauth_clients, create_route_provider, create_summary_client, load_env_files
 from app.departure import DepartureError, DepartureSolver, RouteProvider
 from app.favorites import Coordinates, FavoriteService, create_favorite_store
 from app.history import HistoryService, create_history_store
@@ -51,6 +53,7 @@ def create_app(
     oauth_clients: dict[str, OAuthClient] | None = None,
     favorites: FavoriteService | None = None,
     history: HistoryService | None = None,
+    summary_client: GeminiClient | None = None,
 ) -> FastAPI:
     """FastAPI 앱을 만든다. settings를 주지 않으면 .env와 환경변수에서 읽는다.
 
@@ -84,6 +87,9 @@ def create_app(
         else:
             history = HistoryService(history_store, clock=clock)
 
+    if summary_client is None:
+        # 키·모델이 없으면 None. 앱은 시작하고 요약 API는 rule 요약을 돌려준다.
+        summary_client = create_summary_client(settings)
     if oauth_clients is None:
         oauth_clients = create_oauth_clients(settings)
     if oauth_clients and not settings.secret_key:
@@ -107,6 +113,7 @@ def create_app(
     app.state.favorites = favorites
     app.state.history = history
     app.state.oauth_clients = oauth_clients
+    app.state.summary_client = summary_client
     app.state.oauth_used_states = UsedStates()
 
     # 나중에 붙인 미들웨어가 바깥쪽이다. 출처 검사가 CORS보다 먼저 돈다 (preflight OPTIONS는 검사하지 않는다).
@@ -128,4 +135,5 @@ def create_app(
     app.include_router(stats_api.router)
     app.include_router(departure.router)
     app.include_router(routes.router)
+    app.include_router(summary_api.router)
     return app

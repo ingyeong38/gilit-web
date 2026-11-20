@@ -330,6 +330,102 @@ class RouteGraphResponse(BaseModel):
     points: list[GraphPointResponse] = Field(description="시간순. 실패·지난 슬롯은 빠진다")
 
 
+# --- POST /api/routes/summary (AI 경로 요약) ---
+
+
+def _require_aware_iso(value: object) -> object:
+    """숫자(유닉스 시각)와 시간대 없는 시각을 거른다. 문장은 errors.INVALID_MESSAGES가 필드별로 정한다."""
+    if not isinstance(value, str):
+        raise ValueError("ISO 8601 문자열이 아님")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError("ISO 8601 형식이 아님") from None
+    if parsed.tzinfo is None:
+        raise ValueError("시간대 없음")
+    return value
+
+
+class SummaryRouteRequest(BaseModel):
+    """요약에 쓸 카드 값. 같은 검색의 GET /api/routes 카드 값을 그대로 보낸다. 여기 없는 필드는 무시한다."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(max_length=16, description="카드 id: recommend, time, distance, free. 요청 안에서 중복 불가")
+    departTime: datetime = Field(description="카드의 권장 출발시각 (시간대 포함 ISO 8601). 지난 시각은 400")
+    arriveTime: datetime = Field(description="카드의 예상 도착시각 (시간대 포함 ISO 8601)")
+    durationMin: StrictInt = Field(ge=0, le=1440, description="예상 소요시간(분)")
+    distanceKm: float = Field(ge=0, le=2000, allow_inf_nan=False, description="거리(km)")
+    toll: StrictInt | None = Field(default=None, ge=0, le=1_000_000, description="통행료(원). 없으면 null")
+
+    @field_validator("departTime", "arriveTime", mode="before")
+    @classmethod
+    def require_aware(cls, value: object) -> object:
+        return _require_aware_iso(value)
+
+    @field_validator("distanceKm", mode="before")
+    @classmethod
+    def reject_bool(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("숫자가 아님")
+        return value
+
+
+class RouteSummaryRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "arrive": "2026-11-21T09:00:00+09:00",
+                    "buffer": 10,
+                    "routes": [
+                        {"id": "recommend", "departTime": "2026-11-21T08:12:00+09:00",
+                         "arriveTime": "2026-11-21T08:50:00+09:00", "durationMin": 38, "distanceKm": 31.2, "toll": 1500},
+                        {"id": "free", "departTime": "2026-11-21T08:02:00+09:00",
+                         "arriveTime": "2026-11-21T08:49:00+09:00", "durationMin": 47, "distanceKm": 29.8, "toll": 0},
+                    ],
+                }
+            ]
+        }
+    )
+
+    arrive: datetime = Field(description="도착 희망 시각 (시간대 포함 ISO 8601)")
+    buffer: StrictInt = Field(default=0, description="여유시간(분). 0, 5, 10, 15 중 하나", json_schema_extra={"enum": list(BUFFER_CHOICES)})
+    routes: list[SummaryRouteRequest] = Field(description="GET /api/routes 카드 1~4개 (화면 순서)")
+
+    @field_validator("arrive", mode="before")
+    @classmethod
+    def require_aware(cls, value: object) -> object:
+        return _require_aware_iso(value)
+
+    @field_validator("buffer")
+    @classmethod
+    def check_buffer(cls, value: int) -> int:
+        if value not in BUFFER_CHOICES:
+            raise ValueError("허용되지 않은 여유시간")
+        return value
+
+
+class SummaryComparison(BaseModel):
+    routeId: str = Field(description="요청 카드 id")
+    label: str = Field(description="옵션 이름 (서버의 ROUTE_OPTIONS)")
+    durationMin: int = Field(description="요청 카드의 소요시간(분)")
+    slackMin: int = Field(description="도착 희망 시각 - 카드 예상 도착시각(분, 내림). 늦으면 음수")
+    toll: int | None = Field(description="요청 카드의 통행료(원)")
+    departTime: datetime = Field(description="요청 카드의 권장 출발시각 (+09:00)")
+
+
+class RouteSummaryResponse(BaseModel):
+    source: Literal["gemini", "rule"] = Field(description="gemini: AI 문구, rule: Gemini를 못 써서 서버 규칙으로 고름")
+    recommendedRouteId: str = Field(description="추천 카드 id. rule이면 recommend 카드, 없으면 출발시각이 가장 늦은 카드")
+    recommendedDepartTime: datetime = Field(description="추천 카드의 권장 출발시각 (서버 계산)")
+    headline: str = Field(description="한 줄 요약 (40자 이내). rule이면 고정 문장")
+    keywords: list[str] = Field(description="이유 키워드 0~3개 (각 12자 이내). rule이면 빈 배열")
+    slackMin: int = Field(description="추천 카드의 도착 여유(분, 서버 계산)")
+    bufferMin: int = Field(description="요청한 여유시간(분)")
+    comparison: list[SummaryComparison] = Field(description="요청 카드별 비교 값. 요청 순서")
+
+
 class LatLng(BaseModel):
     lat: float
     lng: float
