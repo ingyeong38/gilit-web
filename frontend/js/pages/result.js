@@ -1,7 +1,14 @@
 import { normalizeRouteGraphs } from "/js/components/durationGraph.js?v=card530-20261114-6";
 import { USE_MOCK as USE_MOCK_FAVORITES, USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
 import { getUser, initializeAuth, isRedirecting, onAuthChange } from "/js/auth.js";
-import { addFavorite, getFavorites, getRouteGraph, getRoutes, removeFavorite, searchPlaces } from "/js/api.js";
+import { addFavorite, getFavorites, getRouteGraph, getRouteSummary, getRoutes, removeFavorite, searchPlaces } from "/js/api.js";
+import {
+  highlightSummaryRoute,
+  localSummary,
+  normalizeSummary,
+  renderAiSummary,
+  renderAiSummaryLoading,
+} from "/js/components/aiSummary.js?v=aisummary-20261120-2";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { renderRouteMap } from "/js/components/map.js";
@@ -254,6 +261,35 @@ function setupShareButton() {
   });
 }
 
+// AI 경로 요약 (#ai-summary). 검색 하나에 한 번 요청하고, 늦게 온 이전 검색의 응답은 요청 토큰으로 버린다.
+// 서버 호출이 실패하면(네트워크, 10초 시간 초과, 400, 5xx, 형식 오류) 카드 값으로 만든 대체 요약을 같은 안내와 함께 그린다.
+let summaryToken = 0;
+let summaryShown = false;
+let selectedRouteId = null;
+
+function highlightSummary(routeId) {
+  selectedRouteId = routeId;
+  if (summaryShown) highlightSummaryRoute(document.getElementById("ai-summary"), routeId);
+}
+
+async function loadSummary(search, arrive, routes) {
+  const token = ++summaryToken;
+  const container = document.getElementById("ai-summary");
+  if (!container) return;
+  summaryShown = false;
+  renderAiSummaryLoading(container);
+  const conditions = { arrive, buffer: search.buffer };
+  let summary;
+  try {
+    summary = normalizeSummary(await getRouteSummary(conditions, routes), routes);
+  } catch {
+    summary = localSummary(conditions, routes);
+  }
+  if (token !== summaryToken) return;
+  renderAiSummary(container, summary, { selectedId: selectedRouteId });
+  summaryShown = Boolean(summary);
+}
+
 function setupResults(search, routes, graph = []) {
   let selectedIndex = 0;
   let graphs = normalizeRouteGraphs(graph, routes);
@@ -295,9 +331,7 @@ function setupResults(search, routes, graph = []) {
       isExample: USE_MOCK,
     });
     drawGraph();
-    document.querySelector(".ai-label").textContent = USE_MOCK ? "AI 경로 추천 요약" : "카카오 경로 안내";
-    document.getElementById("ai-title").textContent = route.aiSummary.title;
-    document.getElementById("ai-text").textContent = route.aiSummary.text;
+    highlightSummary(route.id); // AI 요약은 다시 요청하지 않고 막대 강조만 바꾼다
   };
 
   cards.forEach((card, index) => {
@@ -356,6 +390,8 @@ async function init() {
     }
     const updateGraph = setupResults(search, routes);
     watchDestinationFavorite(search);
+    // 그래프와 병렬로 요약을 한 번 요청한다 (카드 선택 때는 다시 부르지 않는다).
+    loadSummary(search, arrive, routes);
     // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
     // 카드가 0개면 위에서 끝나므로 그래프를 요청하지 않는다. 카드의 id·departTime을 함께 보낸다.
     getRouteGraph({ ...search, arrive }, routes).then(updateGraph).catch(() => {

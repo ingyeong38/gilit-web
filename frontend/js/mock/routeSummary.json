@@ -1,0 +1,14 @@
+{
+  "source": "gemini",
+  "recommendedRouteId": "route-1",
+  "recommendedDepartTime": "2026-11-02T08:12:00+09:00",
+  "headline": "통행료가 조금 들지만 가장 빨리 도착하는 길이에요",
+  "keywords": ["최단 소요", "정체 회피", "여유 확보"],
+  "slackMin": 10,
+  "bufferMin": 10,
+  "comparison": [
+    { "routeId": "route-1", "label": "추천", "durationMin": 38, "slackMin": 10, "toll": 1600, "departTime": "2026-11-02T08:12:00+09:00" },
+    { "routeId": "route-2", "label": "최단", "durationMin": 45, "slackMin": 10, "toll": 0, "departTime": "2026-11-02T08:05:00+09:00" },
+    { "routeId": "route-3", "label": "무료도로", "durationMin": 52, "slackMin": 10, "toll": 0, "departTime": "2026-11-02T07:58:00+09:00" }
+  ]
+}

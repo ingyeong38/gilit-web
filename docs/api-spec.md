@@ -11,6 +11,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | POST | `/api/departure` | 권장 출발시각 계산 (**구현됨**) | 불필요 | 없음 | - |
 | GET | `/api/routes?from=&to=&arrive=&buffer=` | 경로 비교: 옵션별 권장 출발시각·소요시간·거리·통행료 (**구현됨**) | 불필요 | `getRoutes` | `routes.json` |
 | GET | `/api/routes/graph?from=&to=&arrive=&card=` | 출발시각별 소요시간 (**구현됨**) | 불필요 | `getRouteGraph` | `routeGraph.json` |
+| POST | `/api/routes/summary` | AI 경로 요약: 추천 경로·이유 키워드·비교 수치·여유시간 (**구현됨**, 백엔드만) | 불필요 | 없음 (프론트 연결 예정) | 없음 (예정: `routeSummary.json`) |
 | POST | `/api/auth/signup` | 이메일 회원가입 (**구현됨**) | 불필요 | `signup` | localStorage |
 | POST | `/api/auth/login` | 이메일 로그인 (**구현됨**) | 불필요 | `loginWithEmail` | localStorage |
 | POST | `/api/auth/logout` | 로그아웃 (**구현됨**) | 불필요 | `logoutSession` | 호출 안 함 |
@@ -61,7 +62,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 
 ### 오류
 
-오류 응답 본문은 `{ "message": "..." }`이다. 프론트는 4xx의 `message`를 그대로 화면에 보여 주고, 5xx와 네트워크 오류는 "잠시 후 다시 시도해 주세요."로 바꾼다. 그래서 4xx `message`는 사용자에게 보여 줄 한국어 문장으로 쓰고, 내부 정보(SQL, 스택)를 넣지 않는다.
+오류 응답 본문은 `{ "message": "..." }`이다. 일부 API는 프론트가 문구를 고를 수 있게 `code`를 함께 보낸다 (닉네임 변경, AI 경로 요약). 프론트는 4xx의 `message`를 그대로 화면에 보여 주고, 5xx와 네트워크 오류는 "잠시 후 다시 시도해 주세요."로 바꾼다. 그래서 4xx `message`는 사용자에게 보여 줄 한국어 문장으로 쓰고, 내부 정보(SQL, 스택)를 넣지 않는다.
 
 | 코드 | 언제 | `message` 예 |
 | --- | --- | --- |
@@ -277,7 +278,7 @@ GET /api/routes?from=김해시청&to=동의대학교&arrive=2026-11-13T09:00:00%
 | `converged` | `false`면 조회 한도에 걸려 확인된 시각 중 가장 늦은 것을 돌려준 것. 실제 답보다 이르거나 같아서 늦지 않는다 |
 | `dataSource` | `kakao` 또는 `mock` (서버 `ROUTE_PROVIDER`) |
 | `path` | 지도에 그릴 경로 좌표 `[{lat, lng}]`. 두 개 이상 |
-| `aiSummary` | 화면 호환용 고정 안내 `{title, text}`. AI 요약은 아직 없다 |
+| `aiSummary` | 화면 호환용 고정 안내 `{title, text}`. AI 요약은 별도 API `POST /api/routes/summary`로 받는다 (아래) |
 
 `durationMin`, `distanceKm`, `toll`, `path`, `name`, `arriveTime`은 모두 **같은 상세 경로 응답 하나**에서 나온다. 다른 옵션이나 다른 출발시각의 값을 섞지 않는다.
 
@@ -395,6 +396,99 @@ GET /api/routes/graph?from=김해시청&to=동의대학교&arrive=2026-11-13T09:
 열린 문제:
 
 - 프론트는 아직 `card`를 보내지 않는다 (`frontend/js/graphData.js`). `card`가 없으면 이 API는 `400`을 주므로, 프론트가 `card`를 보내기 전까지 그래프는 "불러오지 못했습니다"로 표시된다 (로컬 예시 그래프는 `404`일 때만 나온다).
+
+### POST /api/routes/summary (구현됨, AI 경로 요약)
+
+로그인: 불필요. 구현: `backend/app/api/summary.py`(API), `backend/app/ai_summary/`(Gemini 클라이언트·검증·서버 계산). 검색 기록은 남기지 않는다.
+
+`GET /api/routes`로 받은 카드 값을 보내면 추천 경로와 짧은 요약, 화면에 그릴 비교 수치를 돌려준다. 프론트는 `/api/routes` 응답을 받은 직후 검색 하나에 한 번 부른다 (그래프 요청과 병렬로). 카드를 바꿔도 다시 부르지 않는다.
+
+**역할 나누기**: Gemini는 `recommendedRouteId`(입력 카드 id 중 하나), `headline`, `keywords`만 만든다. `slackMin`, `comparison`, `recommendedDepartTime`, `bufferMin`, `label`은 서버가 요청 카드 값으로 계산해 덮어쓴다. 그래서 화면의 게이지·막대 숫자는 Gemini가 틀려도 틀리지 않는다.
+
+POST인 이유: 입력을 URL 쿼리에 싣지 않아 접근 로그에 남지 않는다. POST라서 출처 검사(위 "보안 규칙")가 적용된다.
+
+요청:
+
+```json
+{
+  "arrive": "2026-11-21T09:00:00+09:00",
+  "buffer": 10,
+  "routes": [
+    { "id": "recommend", "departTime": "2026-11-21T08:12:00+09:00", "arriveTime": "2026-11-21T08:50:00+09:00",
+      "durationMin": 38, "distanceKm": 31.2, "toll": 1500 },
+    { "id": "free", "departTime": "2026-11-21T08:02:00+09:00", "arriveTime": "2026-11-21T08:49:00+09:00",
+      "durationMin": 47, "distanceKm": 29.8, "toll": 0 }
+  ]
+}
+```
+
+| 필드 | 필수 | 규칙 | 오류 (400) |
+| --- | --- | --- | --- |
+| `arrive` | 예 | 도착 희망 시각. **시간대가 있는** ISO 8601 문자열 (`/api/routes`와 달리 시간대 없는 값은 거절) | `message`만 |
+| `buffer` | 아니오 (기본 0) | 정수 0, 5, 10, 15 | `message`만 |
+| `routes` | 예, **1~4개** | `/api/routes` 카드를 화면 순서대로. 아래 필드 말고는 무시한다 (`name`, `path` 등은 보내지 않아도 되고, 보내도 Gemini에 가지 않는다) | `routes_count` |
+| └ `id` | 예 | `recommend`, `time`, `distance`, `free` 중 하나. 요청 안에서 중복 불가 | `route_id`, `route_duplicate` |
+| └ `departTime` | 예 | 시간대 있는 ISO 8601. `arrive − 24시간 ≤ departTime < arrive`. **지금보다 과거면 거절** | `depart_range`, `depart_passed` |
+| └ `arriveTime` | 예 | 시간대 있는 ISO 8601. `departTime ≤ arriveTime ≤ arrive + 24시간` | `arrive_range` |
+| └ `durationMin` | 예 | 정수 0~1440 | `message`만 |
+| └ `distanceKm` | 예 | 숫자 0~2000 | `message`만 |
+| └ `toll` | 아니오 | 정수 0 이상 또는 `null` | `message`만 |
+
+오류 형식: 여러 값을 함께 보는 규칙(표의 `code`가 있는 칸)은 `400 { "message": "...", "code": "..." }`이다. 형식 오류(타입, 범위, 시간대 없음)는 다른 API와 같은 `400 { "message": "..." }`이다. 프론트는 `message`를 그대로 보여 주면 된다. `depart_passed`면 "경로를 다시 검색해 주세요" 흐름으로 안내한다.
+
+| `code` | `message` |
+| --- | --- |
+| `routes_count` | routes는 1~4개 보내 주세요. |
+| `route_id` | routes의 id는 recommend, time, distance, free 중 하나여야 합니다. |
+| `route_duplicate` | 같은 id의 경로가 두 번 있습니다. |
+| `depart_range` | 경로의 출발시각은 도착 희망 시각 전 24시간 안이어야 합니다. |
+| `arrive_range` | 경로의 도착시각은 출발시각 이후, 도착 희망 시각 뒤 24시간 안이어야 합니다. |
+| `depart_passed` | 출발시각이 이미 지난 경로가 있습니다. 경로를 다시 검색해 주세요. |
+
+응답: `200`, 객체. Gemini가 실패해도 **항상 200**이다 (`source`로 구분).
+
+```json
+{
+  "source": "gemini",
+  "recommendedRouteId": "recommend",
+  "recommendedDepartTime": "2026-11-21T08:12:00+09:00",
+  "headline": "통행료가 있지만 가장 빨리 도착하는 길이에요",
+  "keywords": ["최단 소요", "여유 확보"],
+  "slackMin": 10,
+  "bufferMin": 10,
+  "comparison": [
+    { "routeId": "recommend", "label": "추천", "durationMin": 38, "slackMin": 10, "toll": 1500, "departTime": "2026-11-21T08:12:00+09:00" },
+    { "routeId": "free", "label": "무료도로", "durationMin": 47, "slackMin": 11, "toll": 0, "departTime": "2026-11-21T08:02:00+09:00" }
+  ]
+}
+```
+
+위 숫자와 문구는 형식 설명용 예시다.
+
+| 필드 | 설명 |
+| --- | --- |
+| `source` | `gemini`: AI가 고르고 문구를 만듦. `rule`: Gemini를 쓰지 못해 서버 규칙으로 고름 (화면에 "AI 요약을 불러오지 못해 기본 비교를 표시합니다" 같은 안내) |
+| `recommendedRouteId` | 추천 카드 `id`. 항상 요청 `routes`의 id 중 하나 |
+| `recommendedDepartTime` | 추천 카드의 `departTime` (`+09:00`) |
+| `headline` | 한 줄 요약, 1~40자. 숫자가 없다 (숫자가 있으면 `rule`). `rule`이면 "추천 경로를 기준으로 안내해요" 같은 고정 문장 |
+| `keywords` | 이유 키워드 0~3개, 각 1~12자. `rule`이면 `[]` |
+| `slackMin` | 추천 카드의 도착 여유(분) = `arrive − arriveTime`, 내림. 늦으면 음수 |
+| `bufferMin` | 요청한 `buffer` |
+| `comparison[]` | 요청 카드마다 `{routeId, label, durationMin, slackMin, toll, departTime}`, **요청 순서**. `label`은 서버 옵션 이름(추천·최단시간·최단거리·무료도로) |
+
+`rule` 추천: `id`가 `recommend`인 카드, 없으면 `departTime`이 가장 늦은 카드 (같으면 앞 카드).
+
+`rule`이 되는 경우: `GEMINI_API_KEY`나 `GEMINI_MODEL` 없음, 제한 시간(`AI_SUMMARY_TIMEOUT_SEC`, 기본 6초) 초과, 연결 실패, HTTP 오류(401·403·429·5xx 등), JSON이 아니거나 스키마 위반, 입력에 없는 `recommendedRouteId`, `headline` 40자 초과·빈 값, `keywords` 3개 초과·항목 12자 초과·빈 값, 제어·서식 문자(줄바꿈, 탭, 너비 없는 문자 등) 포함, `headline`·`keywords`에 숫자 포함(아라비아·전각·원문자 숫자. 서버 계산값과 어긋나지 않게).
+
+서버 동작:
+
+- Gemini REST `generateContent`를 한 번 부른다. `responseMimeType: application/json` + `responseSchema`(id는 요청 카드 id만 `enum`)로 구조화 JSON을 받고, 서버가 위 규칙으로 다시 검사한다.
+- API 키는 `x-goog-api-key` 헤더로만 보낸다. URL 쿼리에 넣지 않는다.
+- Gemini에 보내는 값: 도착 희망 시각, 여유시간, 카드별 옵션 이름(서버 값)·출발·도착 시각·소요시간·거리·통행료·도착 여유. **장소 이름, 좌표, 사용자 정보는 보내지 않는다.**
+- **저장하지 않는다.** 요약과 입력 값을 DB·검색 기록(`search_history.ai_summary`는 계속 `NULL`)·캐시 어디에도 두지 않는다. 응답에 `Cache-Control: no-store`.
+- 로그(`app.ai_summary`)에는 결과 종류(오류 클래스 이름)와 소요시간만 남긴다. 프롬프트, Gemini 응답, 입력 값, 키는 남기지 않는다.
+- 서버 설정: `GEMINI_API_KEY`, `GEMINI_MODEL`, `AI_SUMMARY_TIMEOUT_SEC` (루트 `.env.example`). 키·모델이 없어도 서버는 시작한다.
+- 실제 호출 테스트: `pytest -m gemini_live` (기본 실행에서 빠진다).
 
 ## 회원 (`users`, `social_accounts`)
 
@@ -800,7 +894,17 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 - 장소 검색 호출 방식: 프론트엔드가 장소 검색 API를 직접 호출할지, 백엔드 `GET /api/places`가 중계할지 (해민과 합의 필요)
 - `from`, `to` 형식: 지금은 장소 이름만 전달한다. 출발시각 계산에는 좌표가 필요하다 (위 3번).
-- `aiSummary`를 `/api/routes`에 포함할지, 별도 API로 분리할지
+- ~~`aiSummary`를 `/api/routes`에 포함할지, 별도 API로 분리할지~~ → **별도 API `POST /api/routes/summary`로 정리** (아래 "해민에게 알릴 변경")
+
+### [해민에게 알릴 변경] AI 경로 요약 (`POST /api/routes/summary`)
+
+1. **별도 API로 분리**: AI 요약은 `/api/routes` 응답에 넣지 않는다. Gemini 응답 대기(최대 6초)가 경로 카드 표시를 늦추지 않게 하려는 것이다. 카드의 `aiSummary`(고정 안내 문구)는 화면 호환용으로 당분간 남긴다. 새 카드에서 쓰지 않게 되면 뺄지 정한다.
+2. **호출 시점**: `/api/routes` 성공 직후 그래프 요청과 병렬로 한 번. 요청 `routes`에는 카드의 `id, departTime, arriveTime, durationMin, distanceKm, toll`만 담는다 (`name`, `path`는 보내지 않는다).
+3. **항상 200**: Gemini가 실패하면 `source: "rule"`이다. 오류 화면 대신 "AI 요약을 불러오지 못해 기본 비교를 표시합니다" 안내 + 같은 게이지·막대를 그린다. 400은 요청 값 문제뿐이다 (`code` 포함, 위 표).
+4. **시각화 데이터**: 게이지는 `slackMin`과 `bufferMin`, 막대는 `comparison[].durationMin`(또는 `slackMin`), 결론 카드는 `recommendedRouteId`·`recommendedDepartTime`·`headline`, 칩은 `keywords`. 텍스트만 표시하지 않는다.
+5. **표시 규칙**: `headline`·`keywords`는 AI가 만든 문자열이므로 `innerHTML`에 넣을 때 `escapeHtml`을 거친다. `slackMin`은 음수일 수 있다 (늦음).
+6. **목업**: 프론트 연결 단계에서 `js/mock/routeSummary.json`을 이 응답 형식으로 만든다.
+7. **프론트 제한 시간**: 10초 권장 (서버 Gemini 제한 6초보다 길게).
 
 ### 정해진 항목 (즐겨찾기·검색 기록)
 

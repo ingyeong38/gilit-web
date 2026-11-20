@@ -67,10 +67,75 @@
 .x-labels { display: flex; justify-content: space-between; padding: 0 10px 0 14px; color: var(--muted-2); font-family: 'Manrope'; font-size: 8px; margin-top: -4px; }
 .chart-tooltip { position: absolute; transform: translate(-40%,-100%); background: var(--navy); color: white; padding: 7px 9px; border-radius: 6px; font-size: 8px; pointer-events: none; box-shadow: var(--shadow); z-index: 5; }
 .chart-tooltip b, .chart-tooltip span { display: block; }.chart-tooltip span { color: #b9c6df; margin-top: 2px; }
-.ai-card { margin-top: 14px; border-radius: var(--radius); background: var(--navy); color: var(--white); display: flex; align-items: center; gap: 15px; padding: 20px 22px; box-shadow: 0 10px 24px rgba(11,31,75,.15); }
-.ai-icon { width: 43px; height: 43px; flex: none; display: grid; place-items: center; border-radius: 11px; background: rgba(255,255,255,.1); color: #7da7ff; }
-.ai-label { color: #7da7ff; font-size: 8px; font-weight: 800; letter-spacing: .08em; }.ai-title { font-size: 13px; font-weight: 800; margin-top: 2px; }.ai-card p { margin: 4px 0 0; color: #b8c4db; font-size: 9px; }
-.ai-score { margin-left: auto; color: #a9b7d2; font-size: 9px; border-left: 1px solid rgba(255,255,255,.12); padding-left: 20px; }.ai-score b { display: block; color: var(--white); font-family: 'Manrope'; font-size: 17px; }
+/* AI 경로 요약 (#ai-summary, js/components/aiSummary.js): 결론 카드 + 여유시간 확보율 게이지 + 경로별 비교표 */
+.ai-card { margin-top: 14px; border-radius: var(--radius); background: var(--white); box-shadow: var(--shadow); padding: 20px; color: var(--ink); }
+.ai-card .ai-status { margin: 0; color: var(--muted); font-size: 12px; }
+.ai-head { display: flex; align-items: center; gap: 10px; }
+.ai-icon { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--blue-soft); color: var(--blue); }
+.ai-label { color: var(--navy); font-size: 15px; font-weight: 800; }
+.ai-notice { margin: 12px 0 0; padding: 9px 12px; border-radius: 8px; background: var(--orange-soft); color: #8a5a00; font-size: 12px; font-weight: 600; }
+.ai-body { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 14px; margin-top: 14px; }
+/* 결론 카드: 라벨 → 권장 출발시각(가장 크게) → headline 한 줄 → 칩 */
+.ai-conclusion { border-radius: 10px; background: var(--navy); color: var(--white); padding: 16px 18px; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.ai-conclusion-label { color: #9fb6e8; font-size: 12px; font-weight: 700; }
+.ai-depart { display: flex; align-items: baseline; gap: 8px; margin-top: 4px; }
+.ai-depart span { color: #b8c4db; font-size: 13px; font-weight: 600; }
+.ai-depart time { font-family: 'Manrope', sans-serif; font-size: 36px; font-weight: 800; line-height: 1.1; letter-spacing: -.02em; }
+.ai-headline { margin: 8px 0 0; color: #e7edf8; font-size: 14px; font-weight: 600; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ai-keywords { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.ai-keywords li { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.12); color: var(--white); font-size: 12px; font-weight: 700; }
+/* 게이지: 요청 여유 대비 확보율. 0과 요청값 눈금 */
+.ai-gauge { --gauge: var(--green); margin: 0; border-radius: 10px; background: var(--surface); padding: 12px 12px 14px; text-align: center; }
+.ai-gauge.tone-short { --gauge: var(--orange); }
+.ai-gauge.tone-late { --gauge: #dc2626; }
+.ai-gauge-dial { position: relative; max-width: 170px; margin: 0 auto; }
+.ai-gauge svg { width: 100%; height: auto; display: block; }
+.gauge-track, .gauge-value { fill: none; stroke-width: 11; stroke-linecap: butt; }
+.gauge-track { stroke: #e3e8f0; }
+.gauge-value { stroke: var(--gauge); }
+.gauge-tick { fill: var(--muted); font-size: 8.5px; font-weight: 700; font-family: 'Manrope', sans-serif; }
+.ai-gauge-value { position: absolute; left: 0; right: 0; top: 46%; color: var(--navy); font-size: 17px; font-weight: 800; }
+.ai-gauge figcaption { margin-top: 4px; font-size: 12px; font-weight: 700; }
+.ai-gauge.tone-ok figcaption { color: #0f7a4f; }
+.ai-gauge.tone-short figcaption { color: #a86400; }
+.ai-gauge.tone-late figcaption, .ai-gauge.tone-late .ai-gauge-value { color: #b91c1c; }
+/* 비교표: 경로명 | 막대(트랙 약 45%) | N분 | 최단 대비 | 통행료 */
+.ai-bars { margin-top: 18px; }
+.ai-bars-title { color: var(--navy); font-size: 13px; font-weight: 800; }
+.ai-card .horizontal-bars { margin-top: 8px; display: grid; gap: 4px; }
+.ai-row { display: grid; grid-template-columns: minmax(0, 1fr) 45% 48px 92px 64px; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; }
+.ai-row-head { padding-top: 0; padding-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 700; border-bottom: 1px solid var(--line); border-radius: 0; }
+.ai-row-head .ai-col-time { grid-column: span 2; }
+.ai-card .ai-row.is-selected { background: var(--blue-pale); box-shadow: inset 3px 0 0 var(--blue); }
+.ai-row-name { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.ai-row-name b { color: var(--navy); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-card .route-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; }
+.bar-badge { flex: none; padding: 1px 6px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); font-size: 10px; font-style: normal; font-weight: 800; }
+.ai-card .bar-track { display: block; height: 10px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
+.ai-card .bar-track span { height: 100%; display: block; border-radius: inherit; opacity: .5; transition: width .6s ease, opacity .2s; }
+.ai-card .ai-row.is-selected .bar-track span { opacity: 1; }
+.ai-row-duration { color: var(--navy); font-family: 'Manrope', sans-serif; font-size: 15px; font-weight: 800; text-align: right; white-space: nowrap; }
+.ai-row-diff, .ai-row-toll { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.ai-row-diff.is-fastest { color: #0f7a4f; font-weight: 800; }
+@media (max-width: 760px) {
+  .ai-row { grid-template-columns: minmax(0, 1fr) 40% 44px 88px 60px; gap: 8px; }
+}
+@media (max-width: 640px) {
+  .ai-card { padding: 16px; }
+  .ai-body { grid-template-columns: minmax(0, 1fr); }
+  .ai-depart time { font-size: 32px; }
+  .ai-gauge { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 12px; text-align: left; }
+  .ai-gauge-dial { margin: 0; }
+  /* 375px: 행을 2줄로 접는다 (경로명 + 소요 / 막대 + 차이·통행료) */
+  .ai-row-head { display: none; }
+  .ai-row { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "name name duration" "bar diff toll"; row-gap: 6px; column-gap: 10px; padding: 9px 10px; }
+  .ai-row-name { grid-area: name; }
+  .ai-card .ai-row .bar-track { grid-area: bar; }
+  .ai-row-duration { grid-area: duration; }
+  .ai-row-diff { grid-area: diff; }
+  .ai-row-toll { grid-area: toll; }
+}
+@media (prefers-reduced-motion: reduce) { .ai-card .bar-track span { transition: none; } }
 
 /* 라벨을 차트 점(viewBox 34~664 / 700)과 같은 가로 위치에 맞춘다. */
 .x-labels { padding: 0 calc(5.14% - 12px) 0 calc(4.86% - 12px); }

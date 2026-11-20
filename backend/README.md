@@ -62,6 +62,9 @@ ROUTE_PROVIDER=kakao venv/Scripts/python -m uvicorn app.main:app --reload --port
 # 실제 카카오 API 테스트 (KAKAO_REST_API_KEY 필요, 한 번에 약 10회 호출)
 venv/Scripts/python -m pytest -m kakao_live
 
+# 실제 Gemini API 테스트 (GEMINI_API_KEY·GEMINI_MODEL 필요, 1회 호출)
+venv/Scripts/python -m pytest -m gemini_live
+
 # 실행 예제: 김해시청 -> 동의대학교, 09:00 도착, 여유 10분 (Mock 데이터) 
 venv/Scripts/python -m app.departure.cli --from 35.2285,128.8894 --to 35.1441,129.0336 --arrive "2026-11-06 09:00" --buffer 10
 
@@ -95,6 +98,8 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `OAUTH_REDIRECT_BASE` | 없음 | 소셜 로그인 콜백 주소의 앞부분 (예: `http://localhost:8000`, 경로 없이). 콜백은 `{값}/api/auth/{google\|kakao}/callback`이고 제공자 콘솔에 똑같이 등록한다 |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | 없음 | Google OAuth 클라이언트 (웹 애플리케이션). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
 | `KAKAO_LOGIN_CLIENT_ID`, `KAKAO_LOGIN_CLIENT_SECRET` | 없음 | 카카오 로그인 앱의 REST API 키와 Client Secret. 길찾기용 `KAKAO_REST_API_KEY`와 따로 받는다 (같은 앱이면 같은 키). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | 없음 | AI 경로 요약(`POST /api/routes/summary`)의 Gemini API 키와 모델 이름. 둘 중 하나라도 없으면 Gemini를 부르지 않고 서버 규칙 요약(`source: "rule"`)을 돌려준다. 서버 시작에는 필요 없다 |
+| `AI_SUMMARY_TIMEOUT_SEC` | `6` | Gemini 요청 제한 시간(초). 프론트 제한 10초보다 짧게 |
 | `OAUTH_MOCK` | `false` | `1`이면 외부 호출 없는 가짜 소셜 로그인 (Google·카카오 모두. start가 곧바로 콜백으로 이동, 고정 프로필, 카카오는 이메일 없음). `AUTH_STORE=memory`일 때만 켜지고, 켜면 실제 Google·카카오 설정은 쓰지 않는다 |
 
 설정이 반쯤만 있으면(예: `KAKAO_LOGIN_CLIENT_ID`만 있음) 서버가 시작하지 않고 빠진 환경변수 이름만 알려 준다. 값은 출력하지 않는다.

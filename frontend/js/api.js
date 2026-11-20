@@ -73,6 +73,46 @@ export function getRouteGraph(search = {}, routes = []) {
   return loadGraphPresentation({ search, routes, mode: GRAPH_DATA_SOURCE, baseUrl: BASE_URL, hostname: location.hostname });
 }
 
+// AI 경로 요약 (POST /api/routes/summary). 요청에는 도착 희망 시각·여유시간·카드 6개 필드만 담는다.
+// 장소 이름·좌표·사용자 정보는 보내지 않는다. 서버는 Gemini가 실패해도 200(source: "rule")을 준다.
+export const SUMMARY_ROUTE_FIELDS = Object.freeze(["id", "departTime", "arriveTime", "durationMin", "distanceKm", "toll"]);
+export const SUMMARY_TIMEOUT_MS = 10000;
+const SUMMARY_ROUTE_LIMIT = 4;
+
+export function summaryRequestBody({ arrive, buffer } = {}, routes = []) {
+  const cards = (Array.isArray(routes) ? routes : [])
+    .filter((route) => typeof route?.id === "string" && route.id && typeof route.departTime === "string")
+    .slice(0, SUMMARY_ROUTE_LIMIT)
+    .map((route) => Object.fromEntries(SUMMARY_ROUTE_FIELDS.map((key) => [key, route[key] ?? null])));
+  return { arrive, buffer: Number(buffer) || 0, routes: cards };
+}
+
+export async function getRouteSummary(search = {}, routes = []) {
+  const body = summaryRequestBody(search, routes);
+  if (USE_MOCK_ROUTES) {
+    // 목업 카드(getRoutes)는 출발시각을 도착 희망 시각에 맞춰 옮기므로, 요약의 시각도 같은 카드 값으로 맞춘다.
+    const summary = await readMock("routeSummary.json");
+    const departOf = new Map(body.routes.map((route) => [route.id, route.departTime]));
+    return {
+      ...summary,
+      recommendedDepartTime: departOf.get(summary.recommendedRouteId) ?? summary.recommendedDepartTime,
+      comparison: summary.comparison.map((row) => ({ ...row, departTime: departOf.get(row.routeId) ?? row.departTime })),
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUMMARY_TIMEOUT_MS);
+  try {
+    return await requestJson(buildUrl("/routes/summary"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function searchPlaces(q = "") {
   q = q.trim();
   if (!USE_MOCK_ROUTES) return requestJson(buildUrl("/places", { q }));
