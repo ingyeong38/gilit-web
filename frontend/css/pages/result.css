@@ -354,3 +354,16 @@
 @media (max-width: 640px) {
   .summary-destination .star-button { min-width: 44px; min-height: 44px; }
 }
+
+/* 링크 복사 (share.js): 복사 실패 시 선택 가능한 입력창, 375px에서 버튼 두 개를 한 줄에 나눠 배치 */
+.share-fallback { max-width: 1240px; margin: 0 auto; padding: 0 0 14px; }
+.share-fallback label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.share-fallback-row { display: flex; gap: 8px; }
+.share-fallback input { flex: 1 1 auto; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.share-fallback .btn { flex: none; height: 38px; font-size: 12px; }
+@media (max-width: 1280px) { .share-fallback { margin-left: 20px; margin-right: 20px; } }
+@media (max-width: 640px) {
+  .summary-inner { gap: 10px; }
+  .summary-inner .btn { flex: 1 1 calc(50% - 5px); min-width: 0; justify-content: center; white-space: nowrap; }
+  .summary-meta { width: 100%; }
+}

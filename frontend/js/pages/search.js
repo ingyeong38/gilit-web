@@ -4,6 +4,7 @@ import { getFavorites, getHistory } from "/js/api.js";
 import { getUser, initializeAuth, isRedirecting, onAuthChange, recheckAuth } from "/js/auth.js";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { readPlaceParams } from "/js/links.js";
+import { ARRIVAL_PASSED_NOTICE, NOTICE_PARAM } from "/js/share.js";
 import { showToast } from "/js/components/toast.js";
 import {
   buildResultUrl,
@@ -200,6 +201,15 @@ if (origin) autocompletes[0].setPlace({ name: fromInput.value, ...origin });
 if (destination?.lat !== undefined) {
   const { name, lat, lng, address } = destination;
   autocompletes[1].setPlace({ name, lat, lng, ...(address ? { address } : {}) });
+}
+// 도착 시각이 지난 결과 화면(공유 링크 등)에서 넘어온 경우: 장소·여유시간은 채워져 있고 날짜·시각은 기본값이다.
+// 안내 후 도착 시각 입력칸으로 보낸다. 새로고침 때 다시 뜨지 않게 notice만 주소에서 뺀다.
+if (restoredQuery.get(NOTICE_PARAM) === ARRIVAL_PASSED_NOTICE) {
+  showToast("도착 희망 시각이 지나 다시 선택해야 해요", { error: true });
+  timeInput.focus();
+  restoredQuery.delete(NOTICE_PARAM);
+  const rest = restoredQuery.toString();
+  history.replaceState(history.state, "", `${location.pathname}${rest ? `?${rest}` : ""}${location.hash}`);
 }
 if (USE_MOCK) {
   document.getElementById("place-search-hint").textContent = "예시 장소 검색: 김해·부산의 제공된 예시 장소에서 이름과 주소를 검색합니다. 장소명 직접 입력도 가능해요.";

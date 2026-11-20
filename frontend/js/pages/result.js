@@ -8,7 +8,8 @@ import {
   normalizeSummary,
   renderAiSummary,
   renderAiSummaryLoading,
-} from "/js/components/aiSummary.js?v=aisummary-20261120-2";
+} from "/js/components/aiSummary.js?v=routeshare-20261120-1";
+import { buildShareLink, copiedMessage, copyText, isArrivalPassed, retimeSearchUrl } from "/js/share.js?v=routeshare-20261120-1";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
 import { renderRouteMap } from "/js/components/map.js";
@@ -233,32 +234,83 @@ function watchDestinationFavorite(search) {
   });
 }
 
-async function copyToClipboard(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  // http 배포 환경처럼 Clipboard API를 못 쓸 때의 대체 경로
+// http 배포 환경처럼 Clipboard API를 못 쓸 때의 대체 경로 (숨긴 textarea + execCommand)
+function execCopy(text) {
   const textarea = document.createElement("textarea");
   textarea.value = text;
+  textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
   textarea.style.opacity = "0";
   document.body.append(textarea);
   textarea.select();
-  const copied = document.execCommand("copy");
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
   textarea.remove();
-  if (!copied) throw new Error("복사 실패");
+  return copied;
 }
 
+// 두 방법 모두 실패하면 선택 가능한 입력창에 링크를 보여 준다 (값은 value로만 넣는다).
+function showShareFallback(url) {
+  const panel = document.getElementById("share-fallback");
+  const input = document.getElementById("share-link");
+  if (!panel || !input) return;
+  input.value = url;
+  panel.hidden = false;
+  input.focus();
+  input.select();
+}
+
+// 링크 복사: 지금 화면의 검색 조건만 담은 결과 화면 주소 (share.js). 경로 결과 값은 담지 않는다.
 function setupShareButton() {
+  const panel = document.getElementById("share-fallback");
+  document.getElementById("share-link")?.addEventListener("focus", (event) => event.target.select());
+  document.getElementById("share-fallback-close")?.addEventListener("click", () => {
+    panel.hidden = true;
+    document.getElementById("share-button").focus();
+  });
   document.getElementById("share-button").addEventListener("click", async () => {
+    const link = buildShareLink(location.search, { origin: location.origin });
+    if (!link) {
+      showToast("공유할 수 없는 검색 조건이에요. 조건을 수정한 뒤 다시 시도해 주세요", { error: true });
+      return;
+    }
+    if (panel) panel.hidden = true;
     try {
-      await copyToClipboard(location.href);
-      showToast("경로 링크를 복사했어요");
+      await copyText(link.url, { clipboard: navigator.clipboard, secure: window.isSecureContext, execCopy });
+      showToast(copiedMessage(link.originOmitted));
     } catch {
-      showToast("링크를 복사하지 못했어요", { error: true });
+      showShareFallback(link.url);
+      showToast("링크를 복사하지 못했어요. 아래 주소를 직접 복사해 주세요", { error: true });
     }
   });
+}
+
+// 도착 시각이 지난 링크: 계산하지 않고 안내한 뒤 길찾기 화면으로 보낸다 (장소·여유시간은 채우고 도착 시각만 다시 고른다).
+// 주소 값은 href·textContent로만 넣는다.
+function renderArrivalPassed() {
+  const shell = document.createElement("div");
+  shell.className = "results-shell";
+  const box = document.createElement("div");
+  box.className = "empty-state";
+  box.setAttribute("role", "status");
+  const mark = document.createElement("span");
+  mark.innerHTML = icon("clock", { size: 24 }); // 고정 아이콘 (사용자 값 없음)
+  const title = document.createElement("b");
+  title.textContent = "도착 희망 시각이 이미 지났어요";
+  const text = document.createElement("p");
+  text.textContent = "출발지·목적지와 여유시간은 그대로 채워 둘게요. 도착 시각만 다시 선택해 주세요.";
+  const link = document.createElement("a");
+  link.className = "btn btn-primary";
+  link.href = retimeSearchUrl(location.search);
+  link.textContent = "도착 시각 다시 선택";
+  box.append(mark, title, text, link);
+  shell.append(box);
+  page.replaceChildren(shell);
+  link.focus();
 }
 
 // AI 경로 요약 (#ai-summary). 검색 하나에 한 번 요청하고, 늦게 온 이전 검색의 응답은 요청 토큰으로 버린다.
@@ -369,6 +421,11 @@ function setupResults(search, routes, graph = []) {
 async function init() {
   const search = readSearchQuery();
   const error = validateSearchConditions(search);
+  // 공유 링크·북마크로 연 결과 화면의 도착 시각이 지났으면 경로를 계산하지 않는다.
+  if (error && isArrivalPassed(search)) {
+    renderArrivalPassed();
+    return;
+  }
   if (error) {
     renderMessage({ title: "검색 조건을 확인해 주세요", text: error.message });
     return;
