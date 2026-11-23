@@ -422,6 +422,6 @@ const days = (now) => json(m.lastSevenDays(now));
   const body = apiSource.slice(apiSource.indexOf('export async function getMyStats'), apiSource.indexOf('// mock 계정은'));
   assert.match(body, /if \(!USE_MOCK\) return requestJson\(buildUrl\("\/stats\/me", \{ range: "week" \}\)/);
   assert.doesNotMatch(body, /USE_MOCK_STATS/);
-  assert.deepEqual([...apiSource.matchAll(/if \(!USE_MOCK_STATS\)[^\n]*/g)].map((m) => m[0]), ['if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"));']);
+  assert.deepEqual([...apiSource.matchAll(/if \(!USE_MOCK_STATS\)[^\n]*/g)].map((m) => m[0]), ['if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats", { days }), { cache: "no-store" });']);
   console.log('PASS: api.js getMyStats 조합별 경로(USE_MOCK false/false·false/true → GET /api/stats/me?range=week, true/* → mock), KST 경계, 오류 전달');
 }

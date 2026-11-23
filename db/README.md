@@ -154,7 +154,7 @@ erDiagram
 
 ### visit_logs
 
-페이지 방문 로그. 방문자 수 통계에 쓴다. 회원이 탈퇴하면 `user_id`만 NULL이 된다.
+페이지 방문 로그 스키마. 사이트 전체 방문자 통계는 GA4 Data API를 사용한다. 회원이 탈퇴하면 `user_id`만 NULL이 된다.
 
 - `session_id`: 서버가 발급한 방문자 쿠키 값. 같은 방문자의 중복 방문을 구분한다 (방문자 수 = `session_id` 개수).
 
@@ -303,31 +303,19 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
 
 ## 이용 통계 쿼리 예시
 
-`GET /api/stats` 응답을 만드는 쿼리다. 방문자는 `session_id` 기준이다. 모든 쿼리는 파라미터 바인딩으로 실행한다.
+`GET /api/stats`에서 검색 수와 인기 장소는 `search_history`를 사용한다. 방문자는 GA4 Data API에서 읽는다. [API 명세](../docs/api-spec.md#get-apistats-사이트-전체-이용-통계)
 
 ```sql
--- 최근 7일 일별 방문자 (dailyVisitors). 방문이 없는 날은 서버에서 0으로 채운다.
-SELECT DATE(created_at) AS date, COUNT(DISTINCT session_id) AS count
-FROM visit_logs
-WHERE created_at >= CURDATE() - INTERVAL 6 DAY
-GROUP BY DATE(created_at)
-ORDER BY date;
+-- 선택 기간 보관 검색 수 (totalSearches)
+SELECT COUNT(*) FROM search_history
+WHERE created_at >= %s AND created_at <= %s;
 
--- 누적 방문자 (totalVisitors), 이번 달 방문자 (monthVisitors)
-SELECT COUNT(DISTINCT session_id) FROM visit_logs;
-SELECT COUNT(DISTINCT session_id) FROM visit_logs
-WHERE created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01');
-
--- 누적 검색 수 (totalSearches)
-SELECT COUNT(*) FROM search_history;
-
--- 인기 목적지 상위 5개 (popularDestinations). 출발지는 origin_name으로 같은 쿼리
-SELECT dest_name AS name, COUNT(*) AS count
+-- 인기 목적지 상위 5개. 출발지는 origin_name에 같은 집계를 적용한다.
+-- 파라미터는 KST 선택 기간 첫날 자정과 요청 시각을 바인딩한다.
+SELECT CAST(TRIM(dest_name) AS BINARY) AS name, COUNT(*) AS count
 FROM search_history
-WHERE dest_name IS NOT NULL
-GROUP BY dest_name
-ORDER BY count DESC
+WHERE created_at >= %s AND created_at <= %s AND TRIM(dest_name) <> ''
+GROUP BY name
+ORDER BY count DESC, name ASC
 LIMIT 5;
 ```
-
-`weekChangePct`는 최근 7일과 그 전 7일의 방문자 합계로 서버에서 계산한다.

@@ -257,3 +257,14 @@ macOS·Linux는 `backend/venv/bin/python`이다. `ROUTE_PROVIDER=kakao`는 이 �
 ```sh
 cd backend && venv/Scripts/python scripts/check_road_routes.py
 ```
+
+## 사이트 전체 이용 통계 (SFR-010)
+
+1. [Google Analytics Data API 빠른 시작](https://developers.google.com/analytics/devguides/reporting/data/v1/quickstart)에 따라 운영 Google Cloud 프로젝트에서 **Google Analytics Data API**(`analyticsdata.googleapis.com`)를 사용 설정한다.
+2. GA4 관리에서 길잇 웹 데이터 스트림과 사이트 전용 속성을 확인하거나 만든다. 속성 보고 시간대를 **대한민국 / 서울**(`Asia/Seoul`)로 설정해 DB의 KST와 맞춘다. 속성 액세스 관리에서 서버 서비스 계정 이메일에 **뷰어** 권한을 부여한다. 실제 데이터 API 보고서의 `metadata.timeZone`을 확인한다.
+3. 서버 환경 변수 또는 `backend/.env`(우선)·루트 `.env`에 숫자 속성 ID `GA4_PROPERTY_ID`와, GA4 보고서에서 확인한 최초 수집일 `GA4_COLLECTION_START_DATE`(`YYYY-MM-DD`, KST)를 설정한다. 누적 조회 범위는 이 날짜부터 조회일(오늘)까지이며, 신규 태그는 이전 방문을 수집하지 않는다. 오늘 데이터는 GA4 처리 상태에 따라 갱신된다.
+4. 서버에 `requirements.txt`를 설치한다. Google 인증은 `analytics.readonly` 범위의 [ADC](https://docs.cloud.google.com/docs/authentication/application-default-credentials)를 사용한다. 서버에 연결된 서비스 계정 또는 워크로드 ID 연동을 사용할 수 있다. ADC 파일을 사용하면 `GOOGLE_APPLICATION_CREDENTIALS`를 서버 전용 파일 경로로 지정한다. 연결 서비스 계정처럼 파일을 쓰지 않는 배포에서는 해당 변수를 설정에서 생략한다. 키 본문과 토큰은 서버의 비밀 저장소에서 관리한다.
+5. 수집을 켜기 전에 웹 스트림의 **향상된 측정**을 끄고, 자동 페이지뷰를 보내는 중복 태그/GTM 설정과 사용자 제공 데이터 수집 설정이 없는지 확인한다. `frontend/js/config.js`의 `GA4_MEASUREMENT_ID`에 웹 스트림 공개 측정 ID(`G-…`)를 설정해 프론트를 배포한다. 공통 헤더가 알려진 사이트 페이지마다 순수 경로로 페이지뷰를 한 번 전송한다. [Google 태그 페이지뷰 설정](https://developers.google.com/analytics/devguides/collection/ga4/views)
+6. GA4에서 홈 및 공유 결과 링크의 페이지뷰가 한 번씩 수집되고 전송 데이터에 URL 쿼리·해시·원래 referrer가 없는지 확인한다. 로그인한 브라우저에서 `GET /api/stats` 응답의 기간과 방문자 값을 GA4 보고서와 대조한다. 운영의 검색 기록은 기존 `AUTH_STORE=mysql` 및 `DB_*` 설정을 사용한다. 운영 계정이 `search_history`를 읽을 수 있는지 확인하고, 별도 MySQL 테스트 DB에서 `python -m pytest -m mysql_live tests/test_stats.py`로 날짜 경계와 순위를 검증한다.
+
+GA4 환경 변수나 자격 증명이 없어도 서버는 기동하고 기존 기능은 동일하게 작동한다. 브라우저 측정 ID는 빈 값이면 수집하지 않는다. 메모리 저장소는 로컬에서 집계 흐름을 확인할 수 있으나 서버 재시작 시 기록이 사라진다. 운영에서 비로그인 검색까지 집계하려면 성공한 비로그인 검색을 기록할 별도 수집 범위와 보관 정책이 필요하다. 현재 순위는 기존 DB를 사용할 수 있으므로 GA4 맞춤 검색 이벤트를 추가하지 않았다.

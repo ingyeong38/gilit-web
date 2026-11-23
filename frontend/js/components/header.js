@@ -1,3 +1,4 @@
+import "/js/analytics.js";
 import { showToast } from "/js/components/toast.js";
 import { logoutSession } from "/js/api.js";
 import { getUser, logout, onAuthChange, initializeAuth, takeAuthMessage } from "/js/auth.js";

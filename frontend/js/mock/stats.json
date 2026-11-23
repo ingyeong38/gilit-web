@@ -1,4 +1,9 @@
 {
+  "visitorStatus": "ok",
+  "searchStatus": "ok",
+  "todayVisitors": 338,
+  "dayChangePct": 32.0,
+  "weekVisitors": 1800,
   "totalVisitors": 48290,
   "monthVisitors": 7428,
   "totalSearches": 126842,

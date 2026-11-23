@@ -4,7 +4,7 @@
   SQL로 묶으면 이름 비교에 콜레이션(대소문자·악센트 무시)이 끼어 두 저장소의 결과가 달라진다.
   사용자의 행은 add에서 MAX_ATTACHED_ROWS(200)개로 유지하므로 한 번에 읽어도 가볍다
   (인덱스 idx_history_user_created).
-- 삭제는 DELETE다. 모든 쿼리에 user_id 조건을 넣는다.
+- 삭제는 DELETE다. 개인 기록 쿼리에 user_id 조건을 넣는다. 사이트 전체 쿼리는 집계만 반환한다.
 """
 
 from __future__ import annotations  # 클래스의 list 메서드와 list[...] 타입 표기가 섞이지 않게
@@ -126,3 +126,22 @@ class MySQLHistoryStore:
     def delete_all(self, user_id: int) -> int:
         with self.pool.connection() as conn, conn.cursor() as cur:
             return cur.execute("DELETE FROM search_history WHERE user_id = %s", (user_id,))
+
+    def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
+        with self.pool.connection() as conn, conn.cursor() as cur:
+            bounds = (to_db(start), to_db(end))
+            window = "WHERE created_at >= %s AND created_at <= %s"
+            cur.execute(f"SELECT COUNT(*) AS total FROM search_history {window}", bounds)
+            total = int(cur.fetchone()["total"])
+            rankings = []
+            for column in ("origin_name", "dest_name"):
+                # BINARY는 기본 콜레이션의 대소문자/악센트 병합을 피한다.
+                cur.execute(
+                    f"SELECT CAST(TRIM({column}) AS BINARY) AS name, COUNT(*) AS count FROM search_history "
+                    f"{window} AND TRIM({column}) <> '' "
+                    "GROUP BY name ORDER BY count DESC, name ASC LIMIT 5",
+                    bounds,
+                )
+                rankings.append([{"name": row["name"].decode("utf-8"), "count": int(row["count"])}
+                                 for row in cur.fetchall()])
+        return total, rankings[0], rankings[1]

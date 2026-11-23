@@ -1,4 +1,7 @@
-.period-select { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 9px 12px; border-radius: 8px; font-size: 11px; }
+.period-select { position: relative; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 9px 12px; border-radius: 8px; font-size: 11px; }
+.period-select select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.period-select:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.visitor-labels.single-date { justify-content: center; }
 .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-top: 35px; }
 .stat-card { padding: 19px; border: 1px solid var(--line); border-radius: var(--radius); display: flex; align-items: center; gap: 13px; box-shadow: 0 4px 14px rgba(20,40,70,.03); }
 .stat-icon { width: 46px; height: 46px; border-radius: 11px; display: grid; place-items: center; flex: none; }.stat-icon.blue { background: var(--blue-soft); color: var(--blue); }.stat-icon.green { background: var(--green-soft); color: var(--green); }.stat-icon.orange { background: var(--orange-soft); color: var(--orange); }
@@ -18,3 +21,34 @@
 /* 축 라벨을 격자선(y 25~185)에, 날짜 라벨을 점(x 35~623 / 660)에 맞춘다. */
 .visitor-axis { top: 19px; bottom: 54px; }
 .visitor-labels { padding: 0 calc(5.6% - 17px) 0 calc(5.3% - 17px); }
+
+.stat-card > div { min-width: 0; }
+.stat-card strong, .stat-card em { white-space: normal; overflow-wrap: anywhere; }
+#stat-popular[title] {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.chart-summary { flex-wrap: wrap; justify-content: flex-end; }
+.horizontal-row { grid-template-columns: 22px minmax(0, 1fr); }
+.bar-label { gap: 8px; }
+.bar-label b { overflow-wrap: anywhere; }
+.bar-label small { flex: none; }
+.stats-status { margin: 12px 0; color: var(--muted); font-size: 12px; }
+
+/* base.css의 데스크톱 최소 폭은 통계 화면에서만 해제한다. */
+body.stats-body { min-width: 0; }
+
+@media (max-width: 760px) {
+  #stats-page { padding-inline: 16px; }
+  .period-select { flex: none; white-space: nowrap; }
+  .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ranking-grid { grid-template-columns: minmax(0, 1fr); }
+  .visitor-chart .dashboard-head { flex-wrap: wrap; gap: 8px; }
+}
+
+@media (max-width: 380px) {
+  .stat-card { padding: 12px; gap: 8px; }
+  .stat-icon { width: 34px; height: 34px; }
+}

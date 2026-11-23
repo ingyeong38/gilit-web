@@ -19,7 +19,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | PATCH | `/api/auth/me` | 닉네임 변경 (**구현됨**) | **필요** | `updateNickname` | localStorage (`gilit:mock:users`) |
 | GET | `/api/auth/{google\|kakao}/start` | 소셜 로그인 시작, 제공자 화면으로 302 (**구현됨**) | 불필요 | `getSocialLoginUrl` (페이지 이동) | 없음 |
 | GET | `/api/auth/{google\|kakao}/callback` | 소셜 로그인 콜백, 프론트로 302 (**구현됨**) | 불필요 | 제공자가 부름 | 없음 |
-| GET | `/api/favorites` | 즐겨찾기 목록 (**구현됨**) | **필요** | `getFavorites` | `favorites.json` |
+| GET | `/api/favorites` | 즐겨찾기 목록 (**구현됨**) | **필요** | `getFavorites` | 브라우저 로컬 저장소 (`USE_MOCK=true`) |
 | POST | `/api/favorites` | 즐겨찾기 추가 (**구현됨**) | **필요** | `addFavorite` | localStorage |
 | PATCH | `/api/favorites?id=` | 즐겨찾기 수정 (**구현됨**) | **필요** | 없음 | - |
 | DELETE | `/api/favorites?id=` | 즐겨찾기 삭제 (**구현됨**) | **필요** | `removeFavorite` | localStorage |
@@ -773,31 +773,31 @@ DB: `users`에 `email`(소문자), `password_hash`(bcrypt), `nickname`(= `name`)
 
 ## 이용 통계
 
-### GET /api/stats
+### GET /api/stats (사이트 전체 이용 통계)
 
-로그인: **필요**
+로그인 **필요**. 세션이 없으면 `401`. 데이터 소스에 문제가 있으면 `200`에서 해당 소스의 상태와 빈 필드를 반환한다. 응답은 `Cache-Control: no-store`를 사용한다.
 
-`dailyVisitors`는 최근 7일이고 마지막 항목이 오늘이다. `weekChangePct`는 최근 7일과 그 전 7일의 방문자 증감률(%)이다. 오늘 방문자, 어제 대비 증감, 주간 합계, 방문자당 검색 수는 프론트에서 계산한다.
+- `days`: `1`, `7`, `31`만 지원. 생략하면 `7`. 그 밖의 값이나 중복 파라미터는 `400` `{ "message": "기간(days)은 1, 7, 31만 지원합니다." }`
+- 선택 기간은 KST 기준 오늘을 포함한다. `days=1`은 오늘 00:00, `days=7`은 6일 전 00:00, `days=31`은 30일 전 00:00부터 요청 시각까지다.
 
-```json
-{
-  "totalVisitors": 48290,
-  "monthVisitors": 7428,
-  "totalSearches": 126842,
-  "weekChangePct": 8.2,
-  "dailyVisitors": [
-    { "date": "2026-11-02", "count": 338 }
-  ],
-  "popularOrigins": [
-    { "name": "김해시청", "count": 1284 }
-  ],
-  "popularDestinations": [
-    { "name": "동의대학교", "count": 1498 }
-  ]
-}
-```
+| 필드 | 의미 |
+| --- | --- |
+| `days`, `timeZone`, `from`, `to` | 선택 일수, `Asia/Seoul`, 선택 기간 첫날, 오늘 (`YYYY-MM-DD`) |
+| `visitorStatus` | `ok` (표시 가능한 값 있음), `empty` (데이터 없음), `unavailable` (미설정·권한·조회 오류 등) |
+| `visitorPeriods` | 조회한 지표별 날짜 범위. 각 값의 `startDate`와 `endDate`는 모두 포함 |
+| `todayVisitors`, `monthVisitors`, `totalVisitors`, `periodVisitors` | GA4 고유 방문자 수 `totalUsers`. 데이터가 없으면 `null` |
+| `dailyVisitors` | `{ date, count }`가 선택 일수만큼. 가장 오래된 날부터 오늘까지. 확인된 무방문일은 0, 미수집일 또는 조회 불가일은 `null` |
+| `dayChangePct`, `periodChangePct` | 오늘과 어제, 선택 기간과 바로 앞 같은 길이 기간의 사용자 수 변화율(%). 기준값이 0이거나 어느 쪽이든 조회되지 않으면 `null` |
+| `weekVisitors`, `weekChangePct` | 7일 요청에서만 제공되는 기존 주간 값. 다른 기간에서는 `null` |
+| `searchStatus` | `ok` (조회 완료), `unavailable` (저장소 없음·조회 오류) |
+| `totalSearches` | 선택 기간 내 보관 중인 로그인 사용자 검색 행 수. 조회 불가 시 `null` |
+| `popularOrigins`, `popularDestinations` | 각각 `{ name, count }` 최대 5개. 해당 순위가 비었거나 조회 불가하면 `[]` |
 
-계산: 방문자는 `visit_logs.session_id`의 서로 다른 값 개수, 검색 수는 `search_history` 행 수(로그인 사용자의 검색만, 지운 기록 제외), 인기 출발지·목적지는 `origin_name`·`dest_name`별 개수 상위 5개다. 방문이 없는 날은 `count: 0`으로 채운다. 쿼리 예시는 `db/README.md`에 있다.
+방문자의 각 기간은 GA4 속성의 한국 시간 기준이다. 오늘·어제는 각 해당 날짜의 일별 지표, 추이는 선택 기간 첫날부터 오늘, 이번 달은 월초부터 오늘, 누적은 설정된 첫 수집일(`GA4_COLLECTION_START_DATE`)부터 오늘이다. 월초 또는 선택 기간 시작일이 첫 수집일보다 빠르면 수집 시작일 이후만 조회한다. 오늘 값은 GA4 처리 지연으로 바뀔 수 있다. 전체 보고서에 행이 없거나 GA4가 일별 데이터를 제한한 경우에는 일별 빈 구간을 미확인(`null`)으로 남긴다. 수집이 시작된 기간에 일부 날짜 행이 있는 정상 일별 보고서에서는 그 기간 내 누락 날짜만 0으로 채운다.
+
+선택 기간 고유 방문자와 직전 같은 길이 기간 고유 방문자는 **날짜 차원 없는 별도 보고서**로 조회한다. 수집 시작일보다 앞선 날짜는 추이에서 `null`이며, 선택 기간 합계는 GA4에서 실제로 조회한 범위에 해당한다. 비교는 두 기간의 전체 날짜가 수집 시작일 이후에 있어야 가능하다. GA4 응답 메타데이터의 시간대가 `Asia/Seoul`이어야 조회값을 사용한다.
+
+검색 수와 장소 순위는 `search_history.created_at`의 KST 선택 기간 첫날 00:00:00부터 요청 시각까지 저장된 행을 센다. 31일 선택에도 사용자별 보관 한도와 삭제 정책이 적용된다. 이름 앞뒤 일반 공백을 제거하고 빈 이름과 NULL을 해당 순위에서 제외한다. 횟수 내림차순, 동률은 대소문자를 구분하는 UTF-8 장소명 오름차순이다. 카드 묶기와 별개이며 5분 이내 재검색 저장 중복 방지, 사용자당 최신 200행 한도 및 기록·회원 삭제가 결과에 반영된다. 비로그인 검색은 저장 범위 밖이다. 응답에 사용자 ID·좌표·개별 기록은 없다. 보관된 로그인 검색과 전체 GA4 방문자의 집계 대상이 달라 화면의 방문자당 평균은 **데이터 없음**으로 표시한다.
 
 ### GET /api/stats/me?range=week (내 이용 통계, 구현됨)
 
