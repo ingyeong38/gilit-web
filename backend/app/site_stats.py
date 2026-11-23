@@ -56,15 +56,17 @@ def user_count(row: dict) -> int:
     return count
 
 
-def visitor_stats(ga4: GA4Reports, today: date) -> dict:
-    week_start = today - timedelta(days=6)
-    dates = [week_start + timedelta(days=i) for i in range(7)]
+def visitor_stats(ga4: GA4Reports, today: date, days: int = 7) -> dict:
+    start = today - timedelta(days=days - 1)
+    dates = [start + timedelta(days=i) for i in range(days)]
     result = {
         "visitorStatus": "unavailable",
         "visitorPeriods": {},
         "todayVisitors": None,
         "totalVisitors": None,
         "monthVisitors": None,
+        "periodVisitors": None,
+        "periodChangePct": None,
         "weekVisitors": None,
         "dayChangePct": None,
         "weekChangePct": None,
@@ -77,15 +79,14 @@ def visitor_stats(ga4: GA4Reports, today: date) -> dict:
         if first > today:
             return {**result, "visitorStatus": "empty"}
         periods = {
-            "dailyVisitors": (max(first, week_start), today),
+            "dailyVisitors": (max(first, start), today),
             "totalVisitors": (first, today),
             "monthVisitors": (max(first, today.replace(day=1)), today),
+            "periodVisitors": (max(first, start), today),
         }
-        if first <= week_start:
-            periods["weekVisitors"] = (week_start, today)
-        prior_start = week_start - timedelta(days=7)
+        prior_start = start - timedelta(days=days)
         if first <= prior_start:
-            periods["previousWeekVisitors"] = (prior_start, week_start - timedelta(days=1))
+            periods["previousPeriodVisitors"] = (prior_start, start - timedelta(days=1))
         ranges = {name: {"startDate": start.isoformat(), "endDate": end.isoformat()}
                   for name, (start, end) in periods.items()}
         requests = [
@@ -97,7 +98,7 @@ def visitor_stats(ga4: GA4Reports, today: date) -> dict:
         daily = {}
         for row in daily_rows:
             day = datetime.strptime(row["dimensionValues"][0]["value"], "%Y%m%d").date()
-            if not max(first, week_start) <= day <= today or day in daily:
+            if not max(first, start) <= day <= today or day in daily:
                 raise ValueError("GA4 unexpected date")
             daily[day] = user_count(row)
         counts = {}
@@ -110,7 +111,10 @@ def visitor_stats(ga4: GA4Reports, today: date) -> dict:
         return result
 
     daily_values = [daily.get(day, 0) if daily and day >= first else None for day in dates]
-    previous_week = counts.pop("previousWeekVisitors", None)
+    previous_period = counts.pop("previousPeriodVisitors", None)
+    period_visitors = counts.get("periodVisitors")
+    period_change = change_pct(period_visitors, previous_period)
+    yesterday = daily_values[-2] if days > 1 else previous_period
     return {
         **result,
         **counts,
@@ -118,8 +122,10 @@ def visitor_stats(ga4: GA4Reports, today: date) -> dict:
         "visitorPeriods": ranges,
         "dailyVisitors": [{"date": day.isoformat(), "count": value} for day, value in zip(dates, daily_values)],
         "todayVisitors": daily_values[-1],
-        "dayChangePct": change_pct(daily_values[-1], daily_values[-2]),
-        "weekChangePct": change_pct(counts.get("weekVisitors"), previous_week),
+        "dayChangePct": change_pct(daily_values[-1], yesterday),
+        "periodChangePct": period_change,
+        "weekVisitors": period_visitors if days == 7 else None,
+        "weekChangePct": period_change if days == 7 else None,
     }
 
 
@@ -133,14 +139,15 @@ def search_stats(store, start: datetime, end: datetime) -> dict:
             "popularOrigins": origins, "popularDestinations": destinations}
 
 
-def site_stats(ga4: GA4Reports, store, now: datetime) -> dict:
+def site_stats(ga4: GA4Reports, store, now: datetime, days: int = 7) -> dict:
     now = now.astimezone(KST)
     today = now.date()
-    start = today - timedelta(days=6)
+    start = today - timedelta(days=days - 1)
     return {
         "timeZone": "Asia/Seoul",
+        "days": days,
         "from": start.isoformat(),
         "to": today.isoformat(),
         **search_stats(store, datetime.combine(start, time.min, KST), now),
-        **visitor_stats(ga4, today),
+        **visitor_stats(ga4, today, days),
     }

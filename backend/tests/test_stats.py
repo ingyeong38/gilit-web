@@ -240,8 +240,8 @@ def test_weekly_stats_refilters_rows_outside_window():
 # --- 사이트 전체 이용 통계 ---
 
 
-def overall(client):
-    response = client.get("/api/stats")
+def overall(client, **params):
+    response = client.get("/api/stats", params=params)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -263,7 +263,8 @@ def test_site_stats_ranks_saved_rows_across_users_in_kst(env):
 
     body = overall(env.alice)
     assert (body["timeZone"], body["from"], body["to"]) == ("Asia/Seoul", WEEK[0], WEEK[-1])
-    assert body["totalSearches"] == 10
+    assert body["days"] == 7
+    assert body["totalSearches"] == 8
     assert body["popularOrigins"] == [{"name": "부산역", "count": 3}]
     assert body["popularDestinations"] == [
         {"name": name, "count": count} for name, count in [("B", 3), ("A", 1), ("C", 1), ("D", 1), ("E", 1)]
@@ -340,12 +341,13 @@ def test_site_stats_ga_failures_and_no_data_keep_search_response(env, monkeypatc
 
 
 def test_site_stats_before_collection_and_comparison_with_zero(env, monkeypatch):
-    calls = ga_stub(env, monkeypatch, [ga_report(("20261119", 1)), ga_report(1), ga_report(1)], first="2026-11-18")
+    calls = ga_stub(env, monkeypatch, [ga_report(("20261119", 1)), ga_report(1), ga_report(1), ga_report(1)], first="2026-11-18")
     body = overall(env.alice)
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert body["visitorPeriods"]["dailyVisitors"]["startDate"] == "2026-11-18"
     assert [row["count"] for row in body["dailyVisitors"]] == [None, None, None, None, None, 0, 1]
-    assert body["dayChangePct"] is body["weekChangePct"] is body["weekVisitors"] is None
+    assert body["dayChangePct"] is body["weekChangePct"] is None
+    assert body["periodVisitors"] == body["weekVisitors"] == 1
 
 
 def test_site_stats_week_comparison_with_zero(env, monkeypatch):
@@ -395,3 +397,54 @@ def test_ga4_reports_uses_adc_and_batches_date_ranges(monkeypatch):
     monkeypatch.setattr(google.auth, "default", default)
     monkeypatch.setattr(transport, "AuthorizedSession", Session)
     assert GA4Reports("1", "2026-10-01").run(payload) == [report]
+
+
+@pytest.mark.parametrize("params", [{"days": "0"}, {"days": "30"}, {"days": ""}, {"days": "7.0"}, {"days": ["1", "7"]}])
+def test_site_stats_rejects_unsupported_days(env, params):
+    response = env.alice.get("/api/stats", params=params)
+    assert response.status_code == 400
+    assert response.json() == {"message": "기간(days)은 1, 7, 31만 지원합니다."}
+
+
+@pytest.mark.parametrize("days,first,count", [(1, "2026-11-19", 1), (7, "2026-11-13", 2), (31, "2026-10-20", 3)])
+def test_site_stats_filters_same_rows_for_count_and_ranks(env, days, first, count):
+    env.now = datetime(2026, 11, 18, 15, 0, tzinfo=UTC)  # 오늘 KST 00:00
+    for created, place in [
+        (env.now, "오늘"),
+        (env.now - timedelta(seconds=1), "어제"),
+        (env.now - timedelta(days=30), "첫날"),
+        (env.now - timedelta(days=30, seconds=1), "기간 밖"),
+        (env.now + timedelta(seconds=1), "미래"),
+    ]:
+        env.add(env.alice_id, created, place, place)
+
+    body = overall(env.alice, days=days)
+    assert (body["days"], body["from"], body["to"]) == (days, first, "2026-11-19")
+    assert body["totalSearches"] == count
+    assert sum(row["count"] for row in body["popularOrigins"]) == count
+    assert sum(row["count"] for row in body["popularDestinations"]) == count
+    assert len(body["dailyVisitors"]) == days
+    assert all(row["count"] is None for row in body["dailyVisitors"])
+
+
+@pytest.mark.parametrize("days,first,prior_start,prior_end", [
+    (1, "2026-11-19", "2026-11-18", "2026-11-18"),
+    (31, "2026-10-20", "2026-09-19", "2026-10-19"),
+])
+def test_site_stats_uses_selected_ga4_ranges(env, monkeypatch, days, first, prior_start, prior_end):
+    calls = ga_stub(env, monkeypatch, [
+        ga_report(("20261119", 16)), ga_report(123), ga_report(53), ga_report(24), ga_report(12),
+    ], first="2026-09-01")
+    body = overall(env.alice, days=days)
+
+    assert body["todayVisitors"] == 16
+    assert body["totalVisitors"] == 123
+    assert body["periodVisitors"] == 24
+    assert body["periodChangePct"] == 100
+    assert body["dailyVisitors"][-1]["count"] == 16
+    assert [call["dateRanges"][0] for call in calls] == [
+        {"startDate": a, "endDate": b} for a, b in
+        [(first, WEEK[-1]), ("2026-09-01", WEEK[-1]), ("2026-11-01", WEEK[-1]),
+         (first, WEEK[-1]), (prior_start, prior_end)]
+    ]
+    assert ["dimensions" in call for call in calls] == [True, False, False, False, False]

@@ -9,22 +9,29 @@ from app.api.history import ERROR_401, get_history
 from app.api.schemas import DailySearchCount, ErrorResponse, MyStatsResponse
 from app.auth import CurrentUser
 from app.history import HistoryService
+from app.history.errors import HistoryError
 from app.history.service import parse_range
 from app.site_stats import site_stats
 
 router = APIRouter(prefix="/api/stats", tags=["이용 통계"])
 
 
-@router.get("", summary="사이트 전체 이용 통계", responses={401: ERROR_401})
+@router.get(
+    "", summary="사이트 전체 이용 통계",
+    responses={400: {"model": ErrorResponse, "description": "지원하지 않는 days"}, 401: ERROR_401},
+)
 def overall_stats(
     request: Request,
     response: Response,
     current: Annotated[CurrentUser, Depends(require_user)],
+    days: str = "7",
 ) -> dict:
+    if days not in {"1", "7", "31"} or len(request.query_params.getlist("days")) > 1:
+        raise HistoryError(400, "기간(days)은 1, 7, 31만 지원합니다.")
     response.headers["Cache-Control"] = "no-store"
     state = request.app.state
     store = state.history.store if state.history else None
-    return site_stats(state.ga4_reports, store, state.stats_clock())
+    return site_stats(state.ga4_reports, store, state.stats_clock(), int(days))
 
 
 ERROR_400 = {"model": ErrorResponse, "description": "range가 week가 아님"}

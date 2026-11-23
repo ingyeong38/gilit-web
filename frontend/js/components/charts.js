@@ -131,7 +131,10 @@ export function renderVisitorChart(container, dailyVisitors) {
   const max = Math.max(...dailyVisitors.map((day) => day.count), 1);
   const axisMax = Math.ceil(max / VISITORS.axisStep) * VISITORS.axisStep;
   const ticks = Array.from({ length: VISITORS.axisTicks + 1 }, (_, index) => axisMax - (axisMax / VISITORS.axisTicks) * index);
-  const xAt = (index) => VISITORS.left + (index * (VISITORS.lastX - VISITORS.left)) / Math.max(dailyVisitors.length - 1, 1);
+  const xAt = (index) => dailyVisitors.length === 1
+    ? (VISITORS.left + VISITORS.lastX) / 2
+    : VISITORS.left + (index * (VISITORS.lastX - VISITORS.left)) / (dailyVisitors.length - 1);
+  const labels = dailyVisitors.length === 31 ? dailyVisitors.filter((_, index) => index % 5 === 0) : dailyVisitors;
   const yAt = (value) => VISITORS.bottomY - (value / axisMax) * (VISITORS.bottomY - VISITORS.topY);
   const segments = [];
   let points = [];
@@ -141,7 +144,7 @@ export function renderVisitorChart(container, dailyVisitors) {
       return;
     }
     if (!points.length) segments.push(points);
-    points.push({ x: xAt(index), y: yAt(day.count), count: day.count });
+    points.push({ x: xAt(index), y: yAt(day.count), count: day.count, date: day.date });
   });
 
   container.innerHTML = `
@@ -153,18 +156,18 @@ export function renderVisitorChart(container, dailyVisitors) {
         const linePoints = segment.map(point => `${point.x},${point.y}`).join(" ");
         return `<polygon points="${segment[0].x},${VISITORS.bottomY} ${linePoints} ${segment.at(-1).x},${VISITORS.bottomY}" class="visitor-area" />
           <polyline points="${linePoints}" class="visitor-line" />
-          ${segment.map(point => `<circle cx="${point.x}" cy="${point.y}" r="4" class="visitor-point"><title>${point.count.toLocaleString("ko-KR")}명</title></circle>`).join("")}`;
+          ${segment.map(point => `<circle cx="${point.x}" cy="${point.y}" r="4" class="visitor-point"><title>${escapeHtml(point.date)} · ${point.count.toLocaleString("ko-KR")}명</title></circle>`).join("")}`;
       }).join("")}
     </svg>
-    <div class="visitor-labels">${dailyVisitors.map((day) => `<span>${formatShortDate(day.date)}</span>`).join("")}</div>
+    <div class="visitor-labels${labels.length === 1 ? " single-date" : ""}">${labels.map((day) => `<span>${formatShortDate(day.date)}</span>`).join("")}</div>
     ${dailyVisitors.some(day => day.count == null) ? '<p class="stats-status" role="status">일부 날짜 데이터 없음</p>' : ""}
   `;
 }
 
-export function renderRankingChart(container, { title, description, rows, tone, message }) {
+export function renderRankingChart(container, { title, description, rows, tone, message, period }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
   container.innerHTML = `
-    <div class="dashboard-head"><div><div class="list-title">${title}</div><p>${description}</p></div><span>최근 7일</span></div>
+    <div class="dashboard-head"><div><div class="list-title">${title}</div><p>${description}</p></div><span>${escapeHtml(period)}</span></div>
     <div class="horizontal-bars">
       ${rows.length ? "" : `<p class="stats-status" role="status">${escapeHtml(message)}</p>`}
       ${rows.map((row, index) => `

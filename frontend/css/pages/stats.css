@@ -1,4 +1,7 @@
-.period-select { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 9px 12px; border-radius: 8px; font-size: 11px; }
+.period-select { position: relative; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 9px 12px; border-radius: 8px; font-size: 11px; }
+.period-select select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.period-select:focus-within { outline: 2px solid var(--blue); outline-offset: 2px; }
+.visitor-labels.single-date { justify-content: center; }
 .stat-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-top: 35px; }
 .stat-card { padding: 19px; border: 1px solid var(--line); border-radius: var(--radius); display: flex; align-items: center; gap: 13px; box-shadow: 0 4px 14px rgba(20,40,70,.03); }
 .stat-icon { width: 46px; height: 46px; border-radius: 11px; display: grid; place-items: center; flex: none; }.stat-icon.blue { background: var(--blue-soft); color: var(--blue); }.stat-icon.green { background: var(--green-soft); color: var(--green); }.stat-icon.orange { background: var(--orange-soft); color: var(--orange); }

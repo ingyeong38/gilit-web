@@ -127,19 +127,20 @@ class MySQLHistoryStore:
         with self.pool.connection() as conn, conn.cursor() as cur:
             return cur.execute("DELETE FROM search_history WHERE user_id = %s", (user_id,))
 
-
     def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
         with self.pool.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS total FROM search_history")
+            bounds = (to_db(start), to_db(end))
+            window = "WHERE created_at >= %s AND created_at <= %s"
+            cur.execute(f"SELECT COUNT(*) AS total FROM search_history {window}", bounds)
             total = int(cur.fetchone()["total"])
             rankings = []
             for column in ("origin_name", "dest_name"):
                 # BINARY는 기본 콜레이션의 대소문자/악센트 병합을 피한다.
                 cur.execute(
                     f"SELECT CAST(TRIM({column}) AS BINARY) AS name, COUNT(*) AS count FROM search_history "
-                    f"WHERE created_at >= %s AND created_at <= %s AND TRIM({column}) <> '' "
+                    f"{window} AND TRIM({column}) <> '' "
                     "GROUP BY name ORDER BY count DESC, name ASC LIMIT 5",
-                    (to_db(start), to_db(end)),
+                    bounds,
                 )
                 rankings.append([{"name": row["name"].decode("utf-8"), "count": int(row["count"])}
                                  for row in cur.fetchall()])

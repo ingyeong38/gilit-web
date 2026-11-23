@@ -202,14 +202,24 @@ export async function getHistory() {
   }));
 }
 
-export async function getStats() {
-  if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"), { cache: "no-store" });
+export async function getStats(days = 7) {
+  if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats", { days }), { cache: "no-store" });
 
   const stats = await readMock("stats.json");
-  const shift = daysToToday(stats.dailyVisitors.at(-1).date);
+  const to = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul", dateStyle: "short" }).format(new Date());
+  const from = daysFrom(to, 1 - days);
+  const dailyVisitors = Array.from({ length: days }, (_, index) => ({
+    date: daysFrom(from, index),
+    count: stats.dailyVisitors.at(index - days)?.count ?? null,
+  }));
+  const hasSample = days === 7;
   return {
-    ...stats,
-    dailyVisitors: stats.dailyVisitors.map((day) => ({ ...day, date: daysFrom(day.date, shift) })),
+    ...stats, from, to, days, dailyVisitors,
+    periodVisitors: hasSample ? stats.weekVisitors : days === 1 ? stats.todayVisitors : null,
+    periodChangePct: hasSample ? stats.weekChangePct : days === 1 ? stats.dayChangePct : null,
+    totalSearches: hasSample ? stats.totalSearches : null,
+    popularOrigins: hasSample ? stats.popularOrigins : [],
+    popularDestinations: hasSample ? stats.popularDestinations : [],
   };
 }
 

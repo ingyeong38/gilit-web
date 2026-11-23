@@ -31,7 +31,7 @@ class HistoryStore(Protocol):
         ...
 
     def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
-        """보관된 행의 총수와 두 순위. 순위는 start 이상 end 이하의 행만 사용한다."""
+        """start 이상 end 이하의 보관 행 수와 두 순위를 반환한다."""
         ...
 
     def delete_one(self, user_id: int, entry_id: int) -> bool:
@@ -105,9 +105,8 @@ class MemoryHistoryStore:
 
     def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
         with self._lock:
-            total = len(self._rows)
             recent = [row for row in self._rows.values() if start <= row.created_at <= end]
-        return total, rank_places(row.origin_name for row in recent), rank_places(row.dest_name for row in recent)
+        return len(recent), rank_places(row.origin_name for row in recent), rank_places(row.dest_name for row in recent)
 
     def rows(self) -> list[HistoryEntry]:
         """테스트용: 모든 행 (id 순)."""

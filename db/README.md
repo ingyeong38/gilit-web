@@ -306,11 +306,12 @@ API는 `2026-11-02T09:00:00+09:00` 형식으로 주고받는다 (`docs/api-spec.
 `GET /api/stats`에서 검색 수와 인기 장소는 `search_history`를 사용한다. 방문자는 GA4 Data API에서 읽는다. [API 명세](../docs/api-spec.md#get-apistats-사이트-전체-이용-통계)
 
 ```sql
--- 전체 보관 검색 수 (totalSearches)
-SELECT COUNT(*) FROM search_history;
+-- 선택 기간 보관 검색 수 (totalSearches)
+SELECT COUNT(*) FROM search_history
+WHERE created_at >= %s AND created_at <= %s;
 
 -- 인기 목적지 상위 5개. 출발지는 origin_name에 같은 집계를 적용한다.
--- 파라미터는 KST 최근 7일 첫날 자정과 요청 시각을 바인딩한다.
+-- 파라미터는 KST 선택 기간 첫날 자정과 요청 시각을 바인딩한다.
 SELECT CAST(TRIM(dest_name) AS BINARY) AS name, COUNT(*) AS count
 FROM search_history
 WHERE created_at >= %s AND created_at <= %s AND TRIM(dest_name) <> ''
