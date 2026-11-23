@@ -235,3 +235,163 @@ def test_weekly_stats_refilters_rows_outside_window():
 
     assert [item.count for item in result.daily] == [0, 0, 0, 0, 0, 0, 1]
     assert (result.total, result.top_place) == (1, "안")
+
+
+# --- 사이트 전체 이용 통계 ---
+
+
+def overall(client):
+    response = client.get("/api/stats")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_site_stats_requires_login(env):
+    assert TestClient(env.app, base_url=BASE_URL).get("/api/stats").status_code == 401
+
+
+def test_site_stats_ranks_saved_rows_across_users_in_kst(env):
+    env.add(env.alice_id, datetime(2026, 11, 12, 14, 59, 59, tzinfo=UTC), "제외", "제외")
+    edge = datetime(2026, 11, 12, 15, 0, tzinfo=UTC)
+    env.add(env.alice_id, edge, "B", "부산역")
+    env.add(env.alice_id, edge, "B", "부산역")  # 기록 카드가 같아도 저장된 행은 각각 집계
+    env.add(env.bob_id, NOW, "A", "부산역")
+    env.add(env.bob_id, NOW, " B ", " ")
+    for name in ["a", "C", "D", "E"]:
+        env.add(env.bob_id, NOW, name, "")
+    env.add(env.bob_id, NOW + timedelta(seconds=1), "미래", "미래")
+
+    body = overall(env.alice)
+    assert (body["timeZone"], body["from"], body["to"]) == ("Asia/Seoul", WEEK[0], WEEK[-1])
+    assert body["totalSearches"] == 10
+    assert body["popularOrigins"] == [{"name": "부산역", "count": 3}]
+    assert body["popularDestinations"] == [
+        {"name": name, "count": count} for name, count in [("B", 3), ("A", 1), ("C", 1), ("D", 1), ("E", 1)]
+    ]
+    assert body["visitorStatus"] == "unavailable"
+    assert all(item["count"] is None for item in body["dailyVisitors"])
+
+
+def ga_report(*values, zone="Asia/Seoul"):
+    rows = []
+    for value in values:
+        if isinstance(value, tuple):
+            day, value = value
+            row = {"dimensionValues": [{"value": day}]}
+        else:
+            row = {}
+        rows.append({**row, "metricValues": [{"value": str(value)}]})
+    return {"metadata": {"timeZone": zone}, "rowCount": len(rows), "rows": rows}
+
+
+def ga_stub(env, monkeypatch, reports, first="2026-10-01"):
+    ga = env.app.state.ga4_reports
+    monkeypatch.setattr(ga, "property_id", "1")
+    monkeypatch.setattr(ga, "start_date", first)
+    calls = []
+    def run(requests):
+        calls.extend(requests)
+        if isinstance(reports, Exception):
+            raise reports
+        return reports
+    monkeypatch.setattr(ga, "run", run)
+    return calls
+
+
+def test_site_stats_uses_independent_unique_users_and_preserves_db_outage(env, monkeypatch):
+    calls = ga_stub(env, monkeypatch, [
+        ga_report(("20261119", 16), ("20261118", 8), ("20261113", 11)),
+        ga_report(123), ga_report(53), ga_report(24), ga_report(20),
+    ])
+    def broken(*args):
+        raise TimeoutError
+    monkeypatch.setattr(env.backend.history, "site_search_stats", broken)
+    body = overall(env.alice)
+
+    assert body["searchStatus"] == "unavailable"
+    assert body["totalSearches"] is None
+    assert body["visitorStatus"] == "ok"
+    assert counts({"daily": body["dailyVisitors"]}) == [11, 0, 0, 0, 0, 8, 16]
+    assert (body["totalVisitors"], body["monthVisitors"], body["todayVisitors"]) == (123, 53, 16)
+    assert (body["weekVisitors"], body["weekChangePct"], body["dayChangePct"]) == (24, 20.0, 100.0)
+    assert all(call["metrics"] == [{"name": "totalUsers"}] for call in calls)
+    assert [call["dateRanges"][0] for call in calls] == [
+        {"startDate": start, "endDate": end} for start, end in
+        [(WEEK[0], WEEK[-1]), ("2026-10-01", WEEK[-1]), ("2026-11-01", WEEK[-1]),
+         (WEEK[0], WEEK[-1]), ("2026-11-06", "2026-11-12")]
+    ]
+    assert ["dimensions" in call for call in calls] == [True, False, False, False, False]
+
+
+@pytest.mark.parametrize("reports,status", [
+    (PermissionError(), "unavailable"),
+    (TimeoutError(), "unavailable"),
+    ([ga_report(zone="America/Los_Angeles")] * 5, "unavailable"),
+    ([ga_report()] * 5, "empty"),
+])
+def test_site_stats_ga_failures_and_no_data_keep_search_response(env, monkeypatch, reports, status):
+    ga_stub(env, monkeypatch, reports)
+    body = overall(env.alice)
+    assert body["visitorStatus"] == status
+    assert body["totalVisitors"] is None
+    assert body["searchStatus"] == "ok"
+    assert body["totalSearches"] == 0
+    assert body["popularOrigins"] == body["popularDestinations"] == []
+
+
+def test_site_stats_before_collection_and_comparison_with_zero(env, monkeypatch):
+    calls = ga_stub(env, monkeypatch, [ga_report(("20261119", 1)), ga_report(1), ga_report(1)], first="2026-11-18")
+    body = overall(env.alice)
+    assert len(calls) == 3
+    assert body["visitorPeriods"]["dailyVisitors"]["startDate"] == "2026-11-18"
+    assert [row["count"] for row in body["dailyVisitors"]] == [None, None, None, None, None, 0, 1]
+    assert body["dayChangePct"] is body["weekChangePct"] is body["weekVisitors"] is None
+
+
+def test_site_stats_week_comparison_with_zero(env, monkeypatch):
+    ga_stub(env, monkeypatch, [ga_report(("20261119", 1)), ga_report(1), ga_report(1), ga_report(1), ga_report(0)])
+    assert overall(env.alice)["weekChangePct"] is None
+
+
+def test_ga4_reports_uses_adc_and_batches_date_ranges(monkeypatch):
+    import google.auth
+    from google.auth.transport import requests as transport
+
+    from app.site_stats import GA4Reports
+
+    credentials = object()
+    report = ga_report(123)
+    payload = [{"metrics": [{"name": "totalUsers"}], "dateRanges": [
+        {"startDate": "2026-11-13", "endDate": "2026-11-19"}
+    ]}]
+
+    def default(*, scopes):
+        assert scopes == ["https://www.googleapis.com/auth/analytics.readonly"]
+        return credentials, None
+
+    class Session:
+        def __init__(self, supplied, *, refresh_timeout):
+            assert supplied is credentials
+            assert refresh_timeout == 5
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, *, json, timeout, max_allowed_time):
+            assert url == "https://analyticsdata.googleapis.com/v1beta/properties/1:batchRunReports"
+            assert json == {"requests": payload}
+            assert 0 < timeout <= max_allowed_time
+            return self
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"reports": [report]}
+
+    monkeypatch.setattr(google.auth, "default", default)
+    monkeypatch.setattr(transport, "AuthorizedSession", Session)
+    assert GA4Reports("1", "2026-10-01").run(payload) == [report]

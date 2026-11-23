@@ -1,6 +1,6 @@
 """검색 기록 저장소. 프로토콜과 메모리 구현 (MySQL은 mysql_stores.py, 테이블 search_history).
 
-- 모든 메서드의 첫 인자는 로그인 사용자의 user_id(양의 정수)다. add에 None을 주면 ValueError (비로그인 기록은 없다).
+- 개인 기록 메서드의 첫 인자는 로그인 사용자의 user_id(양의 정수)다. add에 None을 주면 ValueError (비로그인 기록은 없다).
 - list·delete는 그 사용자의 행만 본다. 남의 id·이미 지운 id는 없는 것과 같다.
 - 삭제는 행을 지운다.
 """
@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
+from collections.abc import Iterable
 from datetime import datetime
 from typing import Protocol
 
@@ -28,6 +30,10 @@ class HistoryStore(Protocol):
         """created_at이 start 이상 end 이하인 그 사용자의 행 (묶지 않은 행 그대로, 순서 없음). 이용 통계가 쓴다."""
         ...
 
+    def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
+        """보관된 행의 총수와 두 순위. 순위는 start 이상 end 이하의 행만 사용한다."""
+        ...
+
     def delete_one(self, user_id: int, entry_id: int) -> bool:
         """그 행과 같은 검색 묶음의 행을 모두 지운다 (화면의 카드 한 장). 없거나 남의 것·이미 지운 것이면 False."""
         ...
@@ -42,6 +48,12 @@ def require_user_id(user_id) -> int:
     if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
         raise ValueError("검색 기록에는 로그인 사용자의 user_id가 필요합니다.")
     return user_id
+
+
+def rank_places(names: Iterable[str | None]) -> list[dict]:
+    counts = Counter(name.strip(" ") for name in names if name and name.strip(" "))
+    return [{"name": name, "count": count}
+            for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:5]]
 
 
 class MemoryHistoryStore:
@@ -90,6 +102,12 @@ class MemoryHistoryStore:
     def delete_all(self, user_id: int) -> int:
         with self._lock:
             return self._delete(self._attached(user_id))
+
+    def site_search_stats(self, start: datetime, end: datetime) -> tuple[int, list[dict], list[dict]]:
+        with self._lock:
+            total = len(self._rows)
+            recent = [row for row in self._rows.values() if start <= row.created_at <= end]
+        return total, rank_places(row.origin_name for row in recent), rank_places(row.dest_name for row in recent)
 
     def rows(self) -> list[HistoryEntry]:
         """테스트용: 모든 행 (id 순)."""

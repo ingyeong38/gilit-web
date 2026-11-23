@@ -25,7 +25,7 @@ class ErrorResponse(BaseModel):
 
 
 class FavoriteResponse(BaseModel):
-    """즐겨찾기 하나 (docs/api-spec.md "즐겨찾기"). 프론트 목업(favorites.json)의 필드에 좌표를 더했다."""
+    """즐겨찾기 하나 (docs/api-spec.md "즐겨찾기"). 장소 이름·주소·분류·좌표를 반환한다."""
 
     id: str = Field(description="즐겨찾기 id. DB BIGINT를 문자열로", examples=["1"])
     name: str = Field(description="별칭 (place_name)", examples=["집"])

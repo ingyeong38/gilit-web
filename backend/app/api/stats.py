@@ -1,12 +1,8 @@
-"""내 이용 통계 API (docs/api-spec.md "내 이용 통계"). 로그인 필요 (require_user, 없으면 401).
-
-사이트 전체 통계(GET /api/stats, 방문자·인기 장소, 통계 화면 stats.js)와는 응답이 다른 별도 경로다.
-집계는 검색 기록 표(search_history)로만 한다 (app/history/stats.py). 새 표나 따로 보관하는 값은 없다.
-"""
+"""사이트 전체 이용 통계와 로그인 사용자 개인 통계 API."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 
 from app.api.auth import require_user
 from app.api.history import ERROR_401, get_history
@@ -14,8 +10,22 @@ from app.api.schemas import DailySearchCount, ErrorResponse, MyStatsResponse
 from app.auth import CurrentUser
 from app.history import HistoryService
 from app.history.service import parse_range
+from app.site_stats import site_stats
 
 router = APIRouter(prefix="/api/stats", tags=["이용 통계"])
+
+
+@router.get("", summary="사이트 전체 이용 통계", responses={401: ERROR_401})
+def overall_stats(
+    request: Request,
+    response: Response,
+    current: Annotated[CurrentUser, Depends(require_user)],
+) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    state = request.app.state
+    store = state.history.store if state.history else None
+    return site_stats(state.ga4_reports, store, state.stats_clock())
+
 
 ERROR_400 = {"model": ErrorResponse, "description": "range가 week가 아님"}
 

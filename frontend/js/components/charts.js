@@ -133,26 +133,40 @@ export function renderVisitorChart(container, dailyVisitors) {
   const ticks = Array.from({ length: VISITORS.axisTicks + 1 }, (_, index) => axisMax - (axisMax / VISITORS.axisTicks) * index);
   const xAt = (index) => VISITORS.left + (index * (VISITORS.lastX - VISITORS.left)) / Math.max(dailyVisitors.length - 1, 1);
   const yAt = (value) => VISITORS.bottomY - (value / axisMax) * (VISITORS.bottomY - VISITORS.topY);
-  const linePoints = dailyVisitors.map((day, index) => `${xAt(index)},${yAt(day.count)}`).join(" ");
+  const segments = [];
+  let points = [];
+  dailyVisitors.forEach((day, index) => {
+    if (day.count == null) {
+      points = [];
+      return;
+    }
+    if (!points.length) segments.push(points);
+    points.push({ x: xAt(index), y: yAt(day.count), count: day.count });
+  });
 
   container.innerHTML = `
     <div class="visitor-axis">${ticks.map((tick) => `<span>${tick}</span>`).join("")}</div>
     <svg viewBox="0 0 660 210" preserveAspectRatio="none">
       ${VISITORS.gridLines.map((y) => `<line x1="${VISITORS.left}" y1="${y}" x2="${VISITORS.right}" y2="${y}" class="grid-line" />`).join("")}
       <defs><linearGradient id="visitorFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2563EB" stop-opacity=".2" /><stop offset="100%" stop-color="#2563EB" stop-opacity="0" /></linearGradient></defs>
-      <polygon points="${VISITORS.left},${VISITORS.bottomY} ${linePoints} ${VISITORS.lastX},${VISITORS.bottomY}" class="visitor-area" />
-      <polyline points="${linePoints}" class="visitor-line" />
-      ${dailyVisitors.map((day, index) => `<circle cx="${xAt(index)}" cy="${yAt(day.count)}" r="4" class="visitor-point"><title>${day.count}명</title></circle>`).join("")}
+      ${segments.map(segment => {
+        const linePoints = segment.map(point => `${point.x},${point.y}`).join(" ");
+        return `<polygon points="${segment[0].x},${VISITORS.bottomY} ${linePoints} ${segment.at(-1).x},${VISITORS.bottomY}" class="visitor-area" />
+          <polyline points="${linePoints}" class="visitor-line" />
+          ${segment.map(point => `<circle cx="${point.x}" cy="${point.y}" r="4" class="visitor-point"><title>${point.count.toLocaleString("ko-KR")}명</title></circle>`).join("")}`;
+      }).join("")}
     </svg>
     <div class="visitor-labels">${dailyVisitors.map((day) => `<span>${formatShortDate(day.date)}</span>`).join("")}</div>
+    ${dailyVisitors.some(day => day.count == null) ? '<p class="stats-status" role="status">일부 날짜 데이터 없음</p>' : ""}
   `;
 }
 
-export function renderRankingChart(container, { title, description, rows, tone }) {
+export function renderRankingChart(container, { title, description, rows, tone, message }) {
   const max = Math.max(...rows.map((row) => row.count), 1);
   container.innerHTML = `
-    <div class="dashboard-head"><div><div class="list-title">${title}</div><p>${description}</p></div><span>이번 주</span></div>
+    <div class="dashboard-head"><div><div class="list-title">${title}</div><p>${description}</p></div><span>최근 7일</span></div>
     <div class="horizontal-bars">
+      ${rows.length ? "" : `<p class="stats-status" role="status">${escapeHtml(message)}</p>`}
       ${rows.map((row, index) => `
         <div class="horizontal-row">
           <span class="rank-number">${index + 1}</span>

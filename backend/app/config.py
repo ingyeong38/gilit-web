@@ -70,6 +70,9 @@ class Settings:
     gemini_model: str | None = None
     ai_summary_timeout_sec: float = 6  # Gemini 요청 제한 시간(초). 프론트 제한 10초보다 짧게
 
+    ga4_property_id: str | None = None
+    ga4_collection_start_date: str | None = None
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
         env = os.environ if env is None else env
@@ -78,6 +81,8 @@ class Settings:
             raise ValueError(f"ROUTE_PROVIDER는 {', '.join(ROUTE_PROVIDERS)} 중 하나여야 합니다: {provider}")
         return cls(
             route_provider=provider,
+            ga4_property_id=env.get("GA4_PROPERTY_ID", "").strip() or None,
+            ga4_collection_start_date=env.get("GA4_COLLECTION_START_DATE", "").strip() or None,
             kakao_rest_api_key=env.get("KAKAO_REST_API_KEY", "").strip() or None,
             departure_max_calls=_int_env(env, "DEPARTURE_MAX_CALLS", cls.departure_max_calls),
             departure_search_window_min=_int_env(env, "DEPARTURE_SEARCH_WINDOW_MIN", cls.departure_search_window_min),

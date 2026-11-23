@@ -1,71 +1,73 @@
 import { getStats } from "/js/api.js";
 import { renderRankingChart, renderVisitorChart } from "/js/components/charts.js";
-import { icon, renderIcons } from "/js/components/icon.js";
+import { renderIcons } from "/js/components/icon.js";
 import { requirePageAccess } from "/js/guard.js";
 
+const LOADING = "불러오는 중";
+const EMPTY = "데이터 없음";
+const ERROR = "통계를 불러올 수 없음";
 const formatCount = (value) => value.toLocaleString("ko-KR");
+const displayCount = (value, unit, fallback) => value == null ? fallback : formatCount(value) + unit;
 
 function setText(id, text) {
   document.getElementById(id).textContent = text;
 }
 
-function describeDayChange(today, yesterday) {
-  if (!yesterday) return "어제 기록 없음";
-  const change = ((today - yesterday) / yesterday) * 100;
+function describeDayChange(change) {
+  if (change == null) return "어제 대비 계산 불가";
   if (change === 0) return "어제와 같음";
   return `어제보다 ${Math.abs(change).toFixed(1)}% ${change > 0 ? "증가" : "감소"}`;
 }
 
-function render(stats) {
-  const { dailyVisitors, popularOrigins, popularDestinations } = stats;
-  const today = dailyVisitors.at(-1)?.count ?? 0;
-  const yesterday = dailyVisitors.at(-2)?.count ?? 0;
-  const weekTotal = dailyVisitors.reduce((sum, day) => sum + day.count, 0);
+function render(stats = {}, fallback = EMPTY) {
+  stats ??= {};
+  const visitorMessage = stats.visitorStatus === "unavailable" ? ERROR : fallback;
+  const searchMessage = stats.searchStatus === "unavailable" ? ERROR : fallback;
+  const dailyVisitors = stats.dailyVisitors ?? [];
+  const popularOrigins = stats.popularOrigins ?? [];
+  const popularDestinations = stats.popularDestinations ?? [];
   const topDestination = popularDestinations[0];
-  const searchesPerVisitor = stats.totalVisitors ? stats.totalSearches / stats.totalVisitors : 0;
+  const comparison = stats.weekChangePct;
 
-  setText("stat-today", `${formatCount(today)}명`);
-  setText("stat-today-note", describeDayChange(today, yesterday));
-  setText("stat-total", `${formatCount(stats.totalVisitors)}명`);
-  setText("stat-total-note", `이번 달 ${formatCount(stats.monthVisitors)}명`);
-  setText("stat-searches", `${formatCount(stats.totalSearches)}회`);
-  setText("stat-searches-note", `방문자당 평균 ${searchesPerVisitor.toFixed(1)}회`);
-  setText("stat-popular", topDestination?.name ?? "-");
-  setText("stat-popular-note", topDestination ? `이번 주 ${formatCount(topDestination.count)}회 검색` : "");
-  setText("week-total", `${formatCount(weekTotal)}명`);
-  setText("week-change", `${stats.weekChangePct > 0 ? "+" : ""}${stats.weekChangePct}%`);
+  setText("stat-today", displayCount(stats.todayVisitors, "명", visitorMessage));
+  setText("stat-today-note", stats.todayVisitors == null ? "" : describeDayChange(stats.dayChangePct));
+  setText("stat-total", displayCount(stats.totalVisitors, "명", visitorMessage));
+  setText("stat-total-note", `이번 달 ${displayCount(stats.monthVisitors, "명", visitorMessage)}`);
+  setText("stat-searches", displayCount(stats.totalSearches, "회", searchMessage));
+  setText("stat-searches-note", `방문자당 평균 ${fallback === LOADING ? LOADING : EMPTY}`);
+  const popular = document.getElementById("stat-popular");
+  popular.textContent = topDestination?.name ?? searchMessage;
+  if (topDestination) popular.setAttribute("title", topDestination.name);
+  else popular.removeAttribute("title");
+  setText("stat-popular-note", topDestination ? `최근 7일 ${formatCount(topDestination.count)}회 검색` : "");
+  setText("week-total", displayCount(stats.weekVisitors, "명", visitorMessage));
+  setText("week-change", comparison == null
+    ? (fallback === LOADING ? "" : "전주 대비 계산 불가")
+    : `전주 대비 ${comparison > 0 ? "+" : ""}${comparison}%`);
 
-  renderVisitorChart(document.getElementById("visitor-graph"), dailyVisitors);
+  const graph = document.getElementById("visitor-graph");
+  if (dailyVisitors.some(day => day.count != null)) {
+    renderVisitorChart(graph, dailyVisitors);
+  } else {
+    graph.innerHTML = `<p class="stats-status" role="status">${visitorMessage}</p>`;
+  }
   renderRankingChart(document.getElementById("ranking-origins"), {
-    title: "인기 출발지 TOP 5",
-    description: "검색 출발지 기준",
-    rows: popularOrigins,
-    tone: "blue",
+    title: "인기 출발지 TOP 5", description: "검색 출발지 기준",
+    rows: popularOrigins, tone: "blue", message: searchMessage,
   });
   renderRankingChart(document.getElementById("ranking-destinations"), {
-    title: "인기 목적지 TOP 5",
-    description: "검색 목적지 기준",
-    rows: popularDestinations,
-    tone: "navy",
+    title: "인기 목적지 TOP 5", description: "검색 목적지 기준",
+    rows: popularDestinations, tone: "navy", message: searchMessage,
   });
-}
-
-function renderError() {
-  document.getElementById("stats-page").innerHTML = `
-    <div class="empty-state">
-      <span>${icon("chart", { size: 24 })}</span>
-      <b>통계를 불러오지 못했어요</b>
-      <p>잠시 후 다시 시도해 주세요.</p>
-    </div>
-  `;
 }
 
 async function init() {
   renderIcons();
+  render({}, LOADING);
   try {
     render(await getStats());
   } catch {
-    renderError();
+    render({}, ERROR);
   }
 }
 

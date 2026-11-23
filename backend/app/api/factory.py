@@ -21,10 +21,11 @@ from app.auth.oauth_state import UsedStates
 from app.ai_summary import GeminiClient
 from app.api import summary as summary_api
 from app.config import Settings, create_oauth_clients, create_route_provider, create_summary_client, load_env_files
-from app.departure import DepartureError, DepartureSolver, RouteProvider
+from app.departure import KST, DepartureError, DepartureSolver, RouteProvider
 from app.favorites import Coordinates, FavoriteService, create_favorite_store
 from app.history import HistoryService, create_history_store
 from app.route_graph import DailyCallBudget
+from app.site_stats import GA4Reports
 
 logger = logging.getLogger("app.api")
 
@@ -112,6 +113,8 @@ def create_app(
     app.state.auth = auth
     app.state.favorites = favorites
     app.state.history = history
+    app.state.stats_clock = clock or (lambda: datetime.now(KST))
+    app.state.ga4_reports = GA4Reports(settings.ga4_property_id, settings.ga4_collection_start_date)
     app.state.oauth_clients = oauth_clients
     app.state.summary_client = summary_client
     app.state.oauth_used_states = UsedStates()

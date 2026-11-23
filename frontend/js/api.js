@@ -203,7 +203,7 @@ export async function getHistory() {
 }
 
 export async function getStats() {
-  if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"));
+  if (!USE_MOCK_STATS) return requestJson(buildUrl("/stats"), { cache: "no-store" });
 
   const stats = await readMock("stats.json");
   const shift = daysToToday(stats.dailyVisitors.at(-1).date);
