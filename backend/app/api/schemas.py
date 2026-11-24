@@ -24,6 +24,15 @@ class ErrorResponse(BaseModel):
     message: str = Field(description="사용자에게 그대로 보여 줄 수 있는 한국어 문장")
 
 
+class PublicConfigResponse(BaseModel):
+    """GET /api/config. 브라우저에 공개되는 값 두 개만 담는다. 필드를 늘리기 전에 공개해도 되는 값인지 확인한다."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kakaoJsKey: str = Field(description="카카오 지도 JavaScript 키. 미설정이면 빈 문자열 (지도는 좌표 미리보기)")
+    ga4MeasurementId: str = Field(description="GA4 측정 ID (G-XXXX). 미설정·형식 오류면 빈 문자열 (GA 미로드)")
+
+
 class FavoriteResponse(BaseModel):
     """즐겨찾기 하나 (docs/api-spec.md "즐겨찾기"). 장소 이름·주소·분류·좌표를 반환한다."""
 
