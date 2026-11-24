@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth as auth_api
+from app.api import config as config_api
 from app.api import departure, health, routes
 from app.api import favorites as favorites_api
 from app.api import history as history_api
@@ -131,6 +132,7 @@ def create_app(
     install_origin_check(app, settings.cors_origins)
     install_error_handlers(app)
     app.include_router(health.router)
+    app.include_router(config_api.router)
     app.include_router(auth_api.router)
     app.include_router(oauth_api.router)
     app.include_router(favorites_api.router)

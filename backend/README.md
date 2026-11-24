@@ -100,9 +100,13 @@ Windows PowerShell·cmd에서는 `venv\Scripts\python -m uvicorn app.main:app --
 | `KAKAO_LOGIN_CLIENT_ID`, `KAKAO_LOGIN_CLIENT_SECRET` | 없음 | 카카오 로그인 앱의 REST API 키와 Client Secret. 길찾기용 `KAKAO_REST_API_KEY`와 따로 받는다 (같은 앱이면 같은 키). 하나라도 있으면 둘 다와 `SECRET_KEY`, `OAUTH_REDIRECT_BASE`가 필요하다 |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | 없음 | AI 경로 요약(`POST /api/routes/summary`)의 Gemini API 키와 모델 이름. 둘 중 하나라도 없으면 Gemini를 부르지 않고 서버 규칙 요약(`source: "rule"`)을 돌려준다. 서버 시작에는 필요 없다 |
 | `AI_SUMMARY_TIMEOUT_SEC` | `6` | Gemini 요청 제한 시간(초). 프론트 제한 10초보다 짧게 |
+| `KAKAO_JS_KEY` | 없음 | 카카오 지도 JavaScript 키 (브라우저 공개 값). `GET /api/config`로 프론트에 내려 준다. 비어도 서버는 시작하고 지도는 좌표 미리보기 |
+| `GA4_MEASUREMENT_ID` | 없음 | GA4 웹 스트림 측정 ID (`G-…`, 공개 값). `GET /api/config`로 내려 준다. 형식이 틀리면 빈 값으로 처리하고 이름만 경고 로그 |
 | `OAUTH_MOCK` | `false` | `1`이면 외부 호출 없는 가짜 소셜 로그인 (Google·카카오 모두. start가 곧바로 콜백으로 이동, 고정 프로필, 카카오는 이메일 없음). `AUTH_STORE=memory`일 때만 켜지고, 켜면 실제 Google·카카오 설정은 쓰지 않는다 |
 
 설정이 반쯤만 있으면(예: `KAKAO_LOGIN_CLIENT_ID`만 있음) 서버가 시작하지 않고 빠진 환경변수 이름만 알려 준다. 값은 출력하지 않는다.
+
+`GET /api/config`(`app/api/config.py`)는 `kakaoJsKey`·`ga4MeasurementId` **두 값만** 돌려준다. 응답 모델에 필드를 명시해 만들고 `Settings`를 직렬화하지 않는다. 다른 설정(REST 키, 로그인 시크릿, `SECRET_KEY`, DB, Gemini, GA 서비스 계정)을 여기에 추가하지 않는다 (`tests/test_config_api.py`가 가짜 시크릿으로 확인한다).
 
 테스트는 `tests/conftest.py`의 fixture가 이 변수들을 지우고 `.env`도 읽지 않으므로, `.env`에 `ROUTE_PROVIDER=kakao`, `AUTH_STORE=mysql`, 실제 Google·카카오 키를 두어도 기본 테스트는 실제 API와 DB를 쓰지 않는다. 회원 저장소 계약 테스트를 MySQL에서 돌리려면 `pytest -m mysql_live`를 쓴다 (`TEST_DB_NAME` DB에 `db/schema.sql`이 적용돼 있어야 한다).
 
@@ -264,7 +268,7 @@ cd backend && venv/Scripts/python scripts/check_road_routes.py
 2. GA4 관리에서 길잇 웹 데이터 스트림과 사이트 전용 속성을 확인하거나 만든다. 속성 보고 시간대를 **대한민국 / 서울**(`Asia/Seoul`)로 설정해 DB의 KST와 맞춘다. 속성 액세스 관리에서 서버 서비스 계정 이메일에 **뷰어** 권한을 부여한다. 실제 데이터 API 보고서의 `metadata.timeZone`을 확인한다.
 3. 서버 환경 변수 또는 `backend/.env`(우선)·루트 `.env`에 숫자 속성 ID `GA4_PROPERTY_ID`와, GA4 보고서에서 확인한 최초 수집일 `GA4_COLLECTION_START_DATE`(`YYYY-MM-DD`, KST)를 설정한다. 누적 조회 범위는 이 날짜부터 조회일(오늘)까지이며, 신규 태그는 이전 방문을 수집하지 않는다. 오늘 데이터는 GA4 처리 상태에 따라 갱신된다.
 4. 서버에 `requirements.txt`를 설치한다. Google 인증은 `analytics.readonly` 범위의 [ADC](https://docs.cloud.google.com/docs/authentication/application-default-credentials)를 사용한다. 서버에 연결된 서비스 계정 또는 워크로드 ID 연동을 사용할 수 있다. ADC 파일을 사용하면 `GOOGLE_APPLICATION_CREDENTIALS`를 서버 전용 파일 경로로 지정한다. 연결 서비스 계정처럼 파일을 쓰지 않는 배포에서는 해당 변수를 설정에서 생략한다. 키 본문과 토큰은 서버의 비밀 저장소에서 관리한다.
-5. 수집을 켜기 전에 웹 스트림의 **향상된 측정**을 끄고, 자동 페이지뷰를 보내는 중복 태그/GTM 설정과 사용자 제공 데이터 수집 설정이 없는지 확인한다. `frontend/js/config.js`의 `GA4_MEASUREMENT_ID`에 웹 스트림 공개 측정 ID(`G-…`)를 설정해 프론트를 배포한다. 공통 헤더가 알려진 사이트 페이지마다 순수 경로로 페이지뷰를 한 번 전송한다. [Google 태그 페이지뷰 설정](https://developers.google.com/analytics/devguides/collection/ga4/views)
+5. 수집을 켜기 전에 웹 스트림의 **향상된 측정**을 끄고, 자동 페이지뷰를 보내는 중복 태그/GTM 설정과 사용자 제공 데이터 수집 설정이 없는지 확인한다. 서버 환경변수 `GA4_MEASUREMENT_ID`에 웹 스트림 공개 측정 ID(`G-…`)를 설정하고 서버를 다시 시작한다 (`GET /api/config`로 프론트에 전달. `frontend/js/config.js`의 같은 이름은 로컬 개발용 대체값). 공통 헤더가 알려진 사이트 페이지마다 순수 경로로 페이지뷰를 한 번 전송한다. [Google 태그 페이지뷰 설정](https://developers.google.com/analytics/devguides/collection/ga4/views)
 6. GA4에서 홈 및 공유 결과 링크의 페이지뷰가 한 번씩 수집되고 전송 데이터에 URL 쿼리·해시·원래 referrer가 없는지 확인한다. 로그인한 브라우저에서 `GET /api/stats` 응답의 기간과 방문자 값을 GA4 보고서와 대조한다. 운영의 검색 기록은 기존 `AUTH_STORE=mysql` 및 `DB_*` 설정을 사용한다. 운영 계정이 `search_history`를 읽을 수 있는지 확인하고, 별도 MySQL 테스트 DB에서 `python -m pytest -m mysql_live tests/test_stats.py`로 날짜 경계와 순위를 검증한다.
 
 GA4 환경 변수나 자격 증명이 없어도 서버는 기동하고 기존 기능은 동일하게 작동한다. 브라우저 측정 ID는 빈 값이면 수집하지 않는다. 메모리 저장소는 로컬에서 집계 흐름을 확인할 수 있으나 서버 재시작 시 기록이 사라진다. 운영에서 비로그인 검색까지 집계하려면 성공한 비로그인 검색을 기록할 별도 수집 범위와 보관 정책이 필요하다. 현재 순위는 기존 DB를 사용할 수 있으므로 GA4 맞춤 검색 이벤트를 추가하지 않았다.

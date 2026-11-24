@@ -1,6 +1,8 @@
 """환경변수 설정. 비밀 값은 코드에 쓰지 않고 환경변수로만 받는다 (루트 .env.example 참고)."""
 
+import logging
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -22,6 +24,16 @@ DEFAULT_CORS_ORIGINS = ("http://localhost:5500", "http://127.0.0.1:5500")
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 # 앞의 파일이 우선한다. 이미 설정된 환경변수는 덮어쓰지 않으므로 우선순위는 환경변수 > backend/.env > 루트 .env다.
 ENV_FILES = (BACKEND_DIR / ".env", BACKEND_DIR.parent / ".env")
+# GA4 웹 스트림 측정 ID (프론트 gtag용 공개 값). 형식이 틀리면 쓰지 않는다.
+GA4_MEASUREMENT_ID_PATTERN = re.compile(r"G-[A-Z0-9]+")
+
+logger = logging.getLogger("app.config")
+
+
+def valid_ga4_measurement_id(value: str | None) -> str:
+    """측정 ID가 G-XXXX 형식이면 그대로, 아니면 빈 문자열."""
+    value = (value or "").strip()
+    return value if GA4_MEASUREMENT_ID_PATTERN.fullmatch(value) else ""
 
 
 def load_env_files(paths: tuple[Path, ...] = ENV_FILES) -> None:
@@ -72,6 +84,9 @@ class Settings:
 
     ga4_property_id: str | None = None
     ga4_collection_start_date: str | None = None
+    # 브라우저에 공개하는 값 (GET /api/config). 비어 있어도 앱은 시작한다. 지도 키는 로그에 나오지 않게 repr에서 뺀다.
+    kakao_js_key: str = field(default="", repr=False)
+    ga4_measurement_id: str = ""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -83,6 +98,8 @@ class Settings:
             route_provider=provider,
             ga4_property_id=env.get("GA4_PROPERTY_ID", "").strip() or None,
             ga4_collection_start_date=env.get("GA4_COLLECTION_START_DATE", "").strip() or None,
+            kakao_js_key=env.get("KAKAO_JS_KEY", "").strip(),
+            ga4_measurement_id=_ga4_measurement_id_env(env),
             kakao_rest_api_key=env.get("KAKAO_REST_API_KEY", "").strip() or None,
             departure_max_calls=_int_env(env, "DEPARTURE_MAX_CALLS", cls.departure_max_calls),
             departure_search_window_min=_int_env(env, "DEPARTURE_SEARCH_WINDOW_MIN", cls.departure_search_window_min),
@@ -211,6 +228,15 @@ def _redirect_base_env(env: Mapping[str, str]) -> str | None:
     parts = urlsplit(value)
     if parts.scheme not in ("http", "https") or not parts.netloc or parts.path or parts.query:
         raise ValueError(f"OAUTH_REDIRECT_BASE는 http(s)://호스트[:포트] 형식이어야 합니다 (경로 없이): {value}")
+    return value
+
+
+def _ga4_measurement_id_env(env: Mapping[str, str]) -> str:
+    raw = env.get("GA4_MEASUREMENT_ID", "").strip()
+    value = valid_ga4_measurement_id(raw)
+    if raw and not value:
+        # 값은 로그에 남기지 않는다.
+        logger.warning("GA4_MEASUREMENT_ID 형식이 G-XXXX가 아니어서 비워 둡니다 (GA 수집 안 함).")
     return value
 
 

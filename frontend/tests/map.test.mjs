@@ -10,11 +10,15 @@ vm.runInContext((await read('../js/utils.js')).replace(/^import .*;$/mg, '').rep
 const logs = [];
 const observers = [];
 const pending = [];
+const sdkKeys = [];
+// renderRouteMap은 런타임 설정을 기다린 뒤 SDK를 부른다. 그 사이 마이크로태스크를 비운다.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 const context = vm.createContext({
   getKakaoMapErrorDetails: diagnosticUtils.getKakaoMapErrorDetails,
   console: { error: (...args) => logs.push(args) },
   escapeHtml: (value) => String(value).replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
-  loadKakaoMapSdk: () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+  loadRuntimeConfig: async () => ({ kakaoJsKey: 'runtime-placeholder', ga4MeasurementId: '' }),
+  loadKakaoMapSdk: (key) => new Promise((resolve, reject) => { sdkKeys.push(key); pending.push({ resolve, reject }); }),
   ResizeObserver: class {
     constructor() { observers.push(this); }
     observe() { this.active = true; }
@@ -52,19 +56,35 @@ const container = {
 const options = { route: routes[0], from: '<img src=x>', to: '동의대학교', color: '#2563EB', isExample: true };
 const first = context.renderRouteMap(container, options);
 const last = context.renderRouteMap(container, { ...options, from: '마지막 선택', route: routes[2] });
-pending[1].resolve(null);
+await settle();
+// 첫 요청은 설정을 기다리는 동안 무효화돼 SDK를 부르지 않는다. 최신 요청만 런타임 키로 SDK를 부른다.
+assert.equal(pending.length, 1);
+assert.deepEqual(sdkKeys, ['runtime-placeholder']);
+pending[0].resolve(null);
 await last;
-pending[0].reject(new Error('늦게 도착한 오류'));
 await first;
 assert(container.innerHTML.includes('마지막 선택'));
 assert.equal(observers.filter((observer) => observer.active).length, 1);
+// SDK를 기다리는 중에 새 선택이 오면 늦게 도착한 오류는 무시한다.
+const stale = context.renderRouteMap(container, options);
+await settle();
+const fresh = context.renderRouteMap(container, { ...options, from: '마지막 선택', route: routes[2] });
+pending[1].reject(new Error('늦게 도착한 오류'));
+await stale;
+await settle();
+pending[2].resolve(null);
+await fresh;
+assert(container.innerHTML.includes('마지막 선택'));
+assert.equal(logs.length, 0);
 const failure = context.renderRouteMap(container, options);
-pending[2].reject(new Error('SDK 실패'));
+await settle();
+pending[3].reject(new Error('SDK 실패'));
 await failure;
 assert(container.innerHTML.includes('불러오지 못했어요'));
 assert.equal(logs.length, 1); // 무효화된 이전 요청은 로그도 남기지 않는다.
 assert.equal(logs[0][1].stage, 'sdk-load');
 const renderFailure = context.renderRouteMap(container, options);
+await settle();
 pending.at(-1).resolve({ maps: { LatLng: function () { throw new Error('지도 생성 오류'); } } });
 await renderFailure;
 assert.equal(logs.at(-1)[1].stage, 'map-render');
@@ -88,17 +108,23 @@ const sdkContext = vm.createContext({
   clearTimeout() {},
 });
 vm.runInContext((await read('../js/utils.js')).replace(/^import .*;$/mg, '').replace(/export /g, ''), sdkContext);
-const timedOut = sdkContext.loadKakaoMapSdk();
-assert.equal(timedOut, sdkContext.loadKakaoMapSdk());
+// 키를 넘기지 않으면(런타임 설정이 비면) SDK를 부르지 않는다. config.js 값(KAKAO_JS_KEY)을 직접 쓰지 않는다.
+assert.equal(await sdkContext.loadKakaoMapSdk(), null);
+assert.equal(await sdkContext.loadKakaoMapSdk('  '), null);
+assert.equal(scripts.length, 0);
+const KEY = 'test-placeholder';
+const timedOut = sdkContext.loadKakaoMapSdk(KEY);
+assert.equal(timedOut, sdkContext.loadKakaoMapSdk(KEY));
+assert.equal(scripts[0].src, 'https://dapi.kakao.com/v2/maps/sdk.js?appkey=test-placeholder&autoload=false');
 const timeoutCheck = assert.rejects(timedOut, /시간 초과/);
 timeout();
 await timeoutCheck;
 assert(scripts[0].removed);
-const retry = sdkContext.loadKakaoMapSdk();
+const retry = sdkContext.loadKakaoMapSdk(KEY);
 const failureCheck = assert.rejects(retry, /로드 실패/);
 scripts[1].onerror();
 await failureCheck;
-const success = sdkContext.loadKakaoMapSdk();
+const success = sdkContext.loadKakaoMapSdk(KEY);
 sdkContext.window.kakao = { maps: { load(callback) { callback(); }, Map: function () {} } };
 scripts[2].onload();
 assert.equal(await success, sdkContext.window.kakao);
@@ -135,7 +161,7 @@ for (const [maps, expected] of [
 ]) {
   const harness = loaderHarness(maps);
   await harness.init();
-  const promise = harness.loader.loadKakaoMapSdk();
+  const promise = harness.loader.loadKakaoMapSdk('test-placeholder');
   const check = assert.rejects(promise, (error) => error.code === expected);
   harness.load();
   if (expected === 'SDK_INITIALIZATION_TIMEOUT') harness.timeout();
@@ -143,7 +169,7 @@ for (const [maps, expected] of [
 }
 const download = loaderHarness({});
 await download.init();
-const waiting = download.loader.loadKakaoMapSdk();
+const waiting = download.loader.loadKakaoMapSdk('test-placeholder');
 const downloadCheck = assert.rejects(waiting, (error) => error.code === 'SDK_DOWNLOAD_TIMEOUT');
 download.timeout(); await downloadCheck;
 console.log('PASS: SDK 다운로드/초기화/지도 생성 오류 구분·늦은 응답 무시·진단 로그 키 마스킹');

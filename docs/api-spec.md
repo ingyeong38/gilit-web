@@ -29,6 +29,7 @@ DB 스키마는 `db/schema.sql`, 테이블 설명은 `db/README.md`에 있다. A
 | GET | `/api/stats` | 이용 통계 | **필요** | `getStats` | `stats.json` |
 | GET | `/api/stats/me?range=week` | 내 이용 통계, 마이페이지 (**구현됨**) | **필요** | `getMyStats` | `api.js` 안의 mock (`USE_MOCK`일 때만, `USE_MOCK_STATS`와 무관) |
 | POST | `/api/visit` | 방문 로그 기록 | 불필요 | 없음 | - |
+| GET | `/api/config` | 프론트 공개 설정: 카카오 지도 JavaScript 키, GA4 측정 ID (**구현됨**) | 불필요 | `getRuntimeConfig` (`js/runtimeConfig.js`가 한 번만 호출) | 없음 (`USE_MOCK`이면 호출하지 않고 `config.js` 값) |
 | GET | `/health` | 서버 상태 확인 (**구현됨**) | 불필요 | - | - |
 
 "프론트 함수 없음"은 서버에 먼저 만들고 프론트에서 나중에 연결할 API다. **구현됨**은 `backend/app/api/`에 있고 `/docs`(Swagger)에서 시험할 수 있다. 나머지는 가안이다.
@@ -209,6 +210,30 @@ FastAPI 기본값인 `422` + `detail` 목록은 쓰지 않는다. 입력 검증 
 로그인: 불필요. 배포·로드밸런서 확인용이고 외부 API를 부르지 않는다.
 
 응답: `200` `{ "status": "ok" }`
+
+### GET /api/config (구현됨, 프론트 공개 설정)
+
+로그인: 불필요. 출처 검사 대상 아님(GET). 응답 헤더 `Cache-Control: no-store`.
+`frontend/js/config.js`는 키를 넣은 채 커밋하지 않으므로, 운영에서는 서버 환경변수의 공개 값을 이 API로 받는다.
+
+응답: `200`
+
+```json
+{ "kakaoJsKey": "카카오 지도 JavaScript 키", "ga4MeasurementId": "G-XXXXXXXXXX" }
+```
+
+| 필드 | 환경변수 | 설명 |
+| --- | --- | --- |
+| `kakaoJsKey` | `KAKAO_JS_KEY` | 카카오 지도 SDK용 JavaScript 키. 미설정이면 `""` → 프론트는 SDK를 부르지 않고 좌표 미리보기 |
+| `ga4MeasurementId` | `GA4_MEASUREMENT_ID` | GA4 웹 스트림 측정 ID. `^G-[A-Z0-9]+$`가 아니면(미설정 포함) `""` → 프론트는 gtag를 불러오지 않는다. 형식 오류는 서버 시작 시 값 없이 이름만 경고 로그 |
+
+규칙:
+
+- **이 두 필드 외에는 아무것도 내려 주지 않는다.** 응답은 `PublicConfigResponse`에 명시한 필드만 만든다(화이트리스트). `Settings`를 통째로 직렬화하거나 dict로 바꾸지 않는다. `KAKAO_REST_API_KEY`, 로그인 시크릿, `SECRET_KEY`, `DB_*`, `GEMINI_*`, GA 서비스 계정(`GA4_PROPERTY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`)은 절대 넣지 않는다. 필드를 늘리려면 브라우저에 공개돼도 되는 값인지 먼저 확인하고 `backend/tests/test_config_api.py`를 함께 고친다.
+- 값은 서버 로그에 남기지 않는다.
+- 두 값 모두 브라우저에 노출되는 값이다. 카카오 지도 키는 카카오 개발자 콘솔에서 사이트 도메인을 제한해 둔다.
+
+프론트(`js/runtimeConfig.js`): 페이지당 한 번만 부른다(모듈 수준 Promise). 값마다 서버 값이 있으면 그 값을, 비어 있으면 `config.js`의 `KAKAO_JS_KEY`·`GA4_MEASUREMENT_ID`를 쓴다(로컬 개발용). 실패·5초 시간 초과·형식 오류는 예외 없이 빈 값으로 처리한다. 지도(`components/map.js`)와 GA(`analytics.js`)가 같은 결과를 쓴다.
 
 ### GET /api/routes (구현됨, 경로 비교 F5)
 

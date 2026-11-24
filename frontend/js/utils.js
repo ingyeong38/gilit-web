@@ -173,6 +173,7 @@ export function buildResultUrl({ from, to, date, time, buffer, toAddress, ...coo
 }
 
 let kakaoMapPromise = null;
+let kakaoMapKey = ""; // 진단 로그에서 가릴 키 (서버 공개 설정 또는 config.js에서 받은 값)
 
 function kakaoSdkError(code, message) {
   const error = new Error(message);
@@ -184,8 +185,8 @@ function kakaoSdkError(code, message) {
 export function getKakaoMapErrorDetails(error, stage) {
   const redact = (value) => {
     let text = String(value ?? "");
-    const key = KAKAO_JS_KEY.trim();
-    if (key) {
+    for (const key of [kakaoMapKey, String(KAKAO_JS_KEY ?? "").trim()]) {
+      if (!key) continue;
       text = text.split(encodeURIComponent(key)).join("[REDACTED]");
       text = text.split(key).join("[REDACTED]");
     }
@@ -200,10 +201,13 @@ export function getKakaoMapErrorDetails(error, stage) {
   };
 }
 
-// 카카오맵 SDK를 동적으로 로드한다. 키가 비어 있으면 로드하지 않고 null을 돌려준다.
-export function loadKakaoMapSdk() {
-  if (!KAKAO_JS_KEY.trim()) return Promise.resolve(null);
+// 카카오맵 SDK를 동적으로 로드한다. 키는 js/runtimeConfig.js가 정한 값을 받는다 (components/map.js).
+// 키가 비어 있으면 로드하지 않고 null을 돌려준다.
+export function loadKakaoMapSdk(key = "") {
+  key = typeof key === "string" ? key.trim() : "";
+  if (!key) return Promise.resolve(null);
   if (kakaoMapPromise) return kakaoMapPromise;
+  kakaoMapKey = key;
 
   kakaoMapPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
@@ -221,7 +225,7 @@ export function loadKakaoMapSdk() {
       stage === "download" ? "SDK_DOWNLOAD_TIMEOUT" : "SDK_INITIALIZATION_TIMEOUT",
       stage === "download" ? "카카오맵 SDK 다운로드 시간 초과 (10초)" : "카카오맵 SDK 초기화 시간 초과 (10초)"
     )), 10000);
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(KAKAO_JS_KEY.trim())}&autoload=false`;
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false`;
     script.onload = () => {
       if (settled) return;
       stage = "initialize";
