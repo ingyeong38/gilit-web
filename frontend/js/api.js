@@ -38,6 +38,34 @@ async function requestJson(url, options) {
   return response.status === 204 ? null : response.json();
 }
 
+// 공개 설정 (GET /api/config). 서버가 주는 값은 카카오 지도 JavaScript 키와 GA4 측정 ID 두 개뿐이다.
+// 실패·시간 초과·형식 오류에도 예외를 던지지 않고 빈 값을 돌려준다 (js/runtimeConfig.js가 config.js 값으로 대체).
+// 전체 Mock(USE_MOCK)은 서버 없이 쓰므로 부르지 않는다.
+export const RUNTIME_CONFIG_TIMEOUT_MS = 5000;
+const GA4_MEASUREMENT_ID_PATTERN = /^G-[A-Z0-9]+$/;
+
+export function normalizeRuntimeConfig(value) {
+  const text = (field) => (typeof field === "string" ? field.trim() : "");
+  const measurementId = text(value?.ga4MeasurementId);
+  return {
+    kakaoJsKey: text(value?.kakaoJsKey),
+    ga4MeasurementId: GA4_MEASUREMENT_ID_PATTERN.test(measurementId) ? measurementId : "",
+  };
+}
+
+export async function getRuntimeConfig() {
+  if (USE_MOCK) return normalizeRuntimeConfig(null);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RUNTIME_CONFIG_TIMEOUT_MS);
+  try {
+    return normalizeRuntimeConfig(await requestJson(buildUrl("/config"), { cache: "no-store", signal: controller.signal }));
+  } catch {
+    return normalizeRuntimeConfig(null);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function postJson(path, body) {
   return requestJson(buildUrl(path), {
     method: "POST",

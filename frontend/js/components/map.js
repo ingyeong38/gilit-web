@@ -1,4 +1,5 @@
 import { escapeHtml, loadKakaoMapSdk, getKakaoMapErrorDetails } from "/js/utils.js";
+import { loadRuntimeConfig } from "/js/runtimeConfig.js";
 
 const states = new WeakMap();
 
@@ -128,7 +129,10 @@ export async function renderRouteMap(container, options) {
   renderPreview(container, state, safeOptions, "지도 배경을 준비하고 있어요.");
   let stage = "sdk-load";
   try {
-    const kakao = await loadKakaoMapSdk();
+    // 키는 서버 공개 설정(GET /api/config) → 없으면 config.js. 둘 다 비면 SDK를 부르지 않고 좌표 미리보기.
+    const { kakaoJsKey } = await loadRuntimeConfig();
+    if (states.get(container) !== state) return;
+    const kakao = await loadKakaoMapSdk(kakaoJsKey);
     if (states.get(container) !== state) return;
     if (kakao) {
       stage = "map-render";

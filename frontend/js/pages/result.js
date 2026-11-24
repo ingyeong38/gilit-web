@@ -8,11 +8,11 @@ import {
   normalizeSummary,
   renderAiSummary,
   renderAiSummaryLoading,
-} from "/js/components/aiSummary.js?v=routeshare-20261120-1";
-import { buildShareLink, copiedMessage, copyText, isArrivalPassed, retimeSearchUrl } from "/js/share.js?v=routeshare-20261120-1";
+} from "/js/components/aiSummary.js?v=apiconfig-20261124-1";
+import { buildShareLink, copiedMessage, copyText, isArrivalPassed, retimeSearchUrl } from "/js/share.js?v=apiconfig-20261124-1";
 import { renderDurationChart } from "/js/components/charts.js?v=card530-20261114-6";
 import { icon, renderIcons } from "/js/components/icon.js";
-import { renderRouteMap } from "/js/components/map.js";
+import { renderRouteMap } from "/js/components/map.js?v=apiconfig-20261124-1";
 import { showToast } from "/js/components/toast.js";
 import {
   ROUTE_COLORS,

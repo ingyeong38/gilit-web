@@ -110,7 +110,7 @@ assert.equal(nodes.get('stat-popular-note').textContent, '오늘 1,010회 검색
 // 수집 설정을 켜도 공유 링크와 콜백 값이 GA4 이벤트에 들어가지 않는다.
 const scripts = [];
 const analytics = vm.createContext({
-  GA4_MEASUREMENT_ID: 'G-TEST',
+  loadRuntimeConfig: async () => ({ kakaoJsKey: '', ga4MeasurementId: 'G-TEST' }),
   window: { location: {
     pathname: '/pages/result.html', origin: 'https://example.test',
     href: 'https://example.test/pages/result.html?from=private&lat=123#secret',
@@ -122,9 +122,11 @@ const analytics = vm.createContext({
   },
 });
 const analyticsSource = strip(await read('../js/analytics.js'));
-vm.runInContext(analyticsSource, analytics);
-vm.runInContext(`{ ${analyticsSource} }`, analytics);
+// 두 번 실행해도(모듈 중복 평가 대비) gtag는 한 번만 시작한다.
+assert.equal(await vm.runInContext(`${analyticsSource}\nanalyticsReady`, analytics), true);
+assert.equal(await vm.runInContext(`{ ${analyticsSource}\nanalyticsReady }`, analytics), false);
 assert.equal(scripts.length, 1);
+assert.equal(scripts[0].src, 'https://www.googletagmanager.com/gtag/js?id=G-TEST');
 assert.equal(scripts[0].referrerPolicy, 'no-referrer');
 const queue = Array.from(analytics.window.dataLayer, call => Array.from(call));
 assert.equal(queue[1][2].send_page_view, false);
