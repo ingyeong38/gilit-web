@@ -17,7 +17,11 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
   list.id = `${input.name}-places`;
   list.setAttribute("role", "listbox");
   list.setAttribute("aria-label", label ?? (input.name === "from" ? "출발지 검색 결과" : "목적지 검색 결과"));
-  panel.append(status, list);
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "다시 검색";
+  retry.hidden = true;
+  panel.append(status, list, retry);
   field.append(panel);
   input.setAttribute("role", "combobox");
   input.setAttribute("aria-autocomplete", "list");
@@ -30,6 +34,7 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
     ++requestId;
     clearTimeout(timer);
     panel.hidden = true;
+    retry.hidden = true;
     places = [];
     active = -1;
     input.setAttribute("aria-expanded", "false");
@@ -39,6 +44,7 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
 
   function show(message, busy = false) {
     panel.hidden = false;
+    retry.hidden = true;
     status.textContent = message;
     list.replaceChildren();
     places = [];
@@ -66,18 +72,14 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
       if (!Array.isArray(results) || results.some((p) => !p || typeof p.name !== "string" || typeof p.address !== "string")) {
         throw new Error("장소 응답 형식 오류");
       }
-      show(results.length ? `검색 결과 ${results.length}개` : "일치하는 장소가 없어요");
+      show(results.length ? `검색 결과 ${results.length}개` : "일치하는 장소가 없어요. 다른 검색어를 입력하거나 도로명 주소로 검색해 주세요.");
       places = results;
       list.innerHTML = results.map((place, index) => `<div role="option" tabindex="-1" aria-selected="false" id="${list.id}-${index}" data-place-index="${index}">
         <span>${icon("location", { size: 17 })}</span><div><b>${escapeHtml(place.name)}</b><small>${escapeHtml(place.address)}</small></div></div>`).join("");
     } catch {
       if (id !== requestId) return;
       show("장소를 검색하지 못했어요. 다시 입력하거나 재시도해 주세요.");
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.textContent = "다시 검색";
-      retry.addEventListener("click", () => { input.focus(); schedule(); });
-      status.append(retry);
+      retry.hidden = false;
     }
   }
 
@@ -97,6 +99,10 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
     options[index].scrollIntoView({ block: "nearest" });
   }
 
+  retry.addEventListener("click", () => {
+    if (document.activeElement === input) schedule();
+    else input.focus();
+  });
   input.addEventListener("focus", schedule);
   input.addEventListener("input", () => {
     const hadPlace = selectedPlace !== null;
@@ -116,7 +122,7 @@ export function setupAutocomplete(input, { label, onChange } = {}) {
       event.preventDefault();
       if (places.length) activate(active < 0 ? (event.key === "ArrowDown" ? 0 : places.length - 1)
         : (active + (event.key === "ArrowDown" ? 1 : -1) + places.length) % places.length);
-    } else if (event.key === "Tab") close();
+    } else if (event.key === "Tab" && (event.shiftKey || retry.hidden)) close();
   });
   // 마우스 선택 전에 blur가 목록을 닫지 않게 한다. 터치 스크롤은 방해하지 않는다.
   panel.addEventListener("mousedown", (event) => event.preventDefault());

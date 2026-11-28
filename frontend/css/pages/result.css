@@ -367,3 +367,7 @@
   .summary-inner .btn { flex: 1 1 calc(50% - 5px); min-width: 0; justify-content: center; white-space: nowrap; }
   .summary-meta { width: 100%; }
 }
+
+.route-lookup-state { overflow-wrap: anywhere; }
+.route-lookup-state p { font-size: 13px; }
+.route-lookup-state .btn[aria-disabled="true"] { opacity: .65; cursor: wait; }

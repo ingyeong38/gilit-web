@@ -58,3 +58,6 @@
   /* 모바일은 문서 흐름 안에 목록을 배치해 다음 입력칸을 가리지 않는다. */
   .autocomplete { position: relative; top: auto; margin-top: 6px; }
 }
+
+.search-card .search-field-error { display: block; margin: 6px 0 0; color: #b02235; font-size: 12px; overflow-wrap: anywhere; }
+.search-card .autocomplete button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
