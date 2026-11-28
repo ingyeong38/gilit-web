@@ -438,25 +438,79 @@ async function init() {
 
   if (!USE_MOCK) document.querySelector(".results-heading p").textContent = "카카오 상세 도로 좌표와 해당 출발시각의 예상 소요시간을 표시합니다.";
 
-  try {
-    const arrive = toIsoTime(search.date, search.time);
-    const routes = await getRoutes({ ...search, arrive });
-    if (routes.length === 0) {
-      renderMessage({ title: "경로를 찾지 못했어요", text: "출발지와 목적지를 다시 확인해 주세요." });
+  const state = document.getElementById("route-lookup-state");
+  const title = document.getElementById("route-lookup-title");
+  const message = document.getElementById("route-lookup-message");
+  const retry = document.getElementById("route-retry");
+  const content = document.getElementById("route-content");
+  const arrive = toIsoTime(search.date, search.time);
+  let loading = false;
+
+  function showLookupState(heading, guidance, canRetry = false) {
+    title.textContent = heading;
+    message.textContent = guidance;
+    retry.hidden = !canRetry;
+    state.hidden = false;
+    content.hidden = true;
+  }
+
+  async function lookupRoutes() {
+    if (loading) return;
+    if (isArrivalPassed(search)) {
+      renderArrivalPassed();
       return;
     }
-    const updateGraph = setupResults(search, routes);
-    watchDestinationFavorite(search);
-    // 그래프와 병렬로 요약을 한 번 요청한다 (카드 선택 때는 다시 부르지 않는다).
-    loadSummary(search, arrive, routes);
-    // 전체 검색당 그래프 요청은 한 번. 카드 전환은 받은 데이터만 사용한다.
-    // 카드가 0개면 위에서 끝나므로 그래프를 요청하지 않는다. 카드의 id·departTime을 함께 보낸다.
-    getRouteGraph({ ...search, arrive }, routes).then(updateGraph).catch(() => {
-      updateGraph({ message: "소요시간 그래프를 불러오지 못했습니다. 실제 경로 카드와 지도는 계속 사용할 수 있습니다." });
-    });
-  } catch (error) {
-    renderMessage({ title: "경로를 불러오지 못했어요", text: error.status >= 400 && error.status < 500 ? error.message : "실제 경로 조회에 실패했어요. 서버와 API 연결을 확인한 뒤 다시 시도해 주세요." });
+
+    loading = true;
+    retry.setAttribute("aria-disabled", "true");
+    showLookupState("경로를 조회하는 중이에요", "출발지와 목적지에 맞는 경로를 찾고 있어요.", !retry.hidden);
+
+    try {
+      const routes = await getRoutes({ ...search, arrive });
+      if (!Array.isArray(routes)) throw new TypeError("Invalid route response");
+      if (routes.length === 0) {
+        showLookupState("경로를 찾지 못했어요", "출발지와 목적지를 다시 확인해 주세요. 조건 수정에서 도착 시각이나 여유시간도 바꿀 수 있어요.");
+        return;
+      }
+
+      const focusResult = document.activeElement === retry;
+      state.hidden = true;
+      content.hidden = false;
+      const updateGraph = setupResults(search, routes);
+      if (focusResult) {
+        const heading = content.querySelector("h1");
+        heading.tabIndex = -1;
+        heading.focus();
+      }
+      watchDestinationFavorite(search);
+      // 그래프와 요약은 경로 카드가 있을 때 한 번만 요청한다.
+      loadSummary(search, arrive, routes);
+      getRouteGraph({ ...search, arrive }, routes).then(updateGraph).catch(() => {
+        updateGraph({ message: "소요시간 그래프를 불러오지 못했습니다. 실제 경로 카드와 지도는 계속 사용할 수 있습니다." });
+      });
+    } catch (error) {
+      if (error?.status === 422) {
+        if (error.message === "장소를 하나로 확인할 수 없어요. 정확한 장소명이나 주소로 다시 검색해 주세요.") {
+          showLookupState("출발지 또는 목적지를 확인해 주세요", "조건 수정에서 정확한 장소명이나 도로명 주소로 검색해 장소를 선택해 주세요.");
+        } else {
+          showLookupState("경로를 찾지 못했어요", "조건 수정에서 도착 시각이나 여유시간을 바꾸고, 출발지와 목적지를 다시 확인해 주세요.");
+        }
+      } else if (error?.status === 400) {
+        showLookupState("검색 조건을 확인해 주세요", "조건 수정에서 장소를 확인하고 현재보다 늦은 도착 시각을 선택해 주세요.");
+      } else {
+        const guidance = error?.status
+          ? "잠시 후 다시 조회해 주세요. 입력한 검색 조건은 그대로 유지돼요."
+          : "인터넷 연결을 확인한 뒤 다시 조회해 주세요. 입력한 검색 조건은 그대로 유지돼요.";
+        showLookupState("경로를 불러오지 못했어요", guidance, true);
+      }
+    } finally {
+      loading = false;
+      retry.removeAttribute("aria-disabled");
+    }
   }
+
+  retry.addEventListener("click", lookupRoutes);
+  await lookupRoutes();
 }
 
 init();

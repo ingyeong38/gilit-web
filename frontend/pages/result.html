@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/components.css" />
-  <link rel="stylesheet" href="/css/pages/result.css?v=apiconfig-20261124-1" />
+  <link rel="stylesheet" href="/css/pages/result.css?v=qur001-20261128-1" />
 </head>
 <body class="duration-result-page">
   <div class="app">
@@ -32,16 +32,26 @@
           </div>
         </div>
         <div class="results-shell">
-          <div class="results-heading">
-            <div><h1 class="page-title">추천 출발시각을 찾았어요</h1><p>실시간 교통 흐름과 도착 여유시간을 반영한 결과입니다.</p></div>
-            <span class="updated"><i></i> 방금 업데이트</span>
+          <div class="empty-state route-lookup-state" id="route-lookup-state">
+            <span><i data-icon="search" data-size="24"></i></span>
+            <div role="status">
+              <b id="route-lookup-title">경로를 조회하는 중이에요</b>
+              <p id="route-lookup-message">출발지와 목적지에 맞는 경로를 찾고 있어요.</p>
+            </div>
+            <button class="btn btn-primary" id="route-retry" type="button" hidden>다시 조회</button>
           </div>
-          <div class="results-grid">
-            <div class="route-list" id="route-list"></div>
-            <div class="result-detail">
-              <div class="map" id="route-map"></div>
-              <section class="chart-card" id="duration-chart" aria-label="출발시각별 예상 소요시간" aria-busy="true"><p role="status">소요시간 그래프를 준비하고 있습니다.</p></section>
-              <section class="ai-card" id="ai-summary" aria-label="AI 경로 추천 요약" aria-busy="true"><p class="ai-status" role="status">AI 경로 요약을 준비하고 있습니다.</p></section>
+          <div id="route-content" hidden>
+            <div class="results-heading">
+              <div><h1 class="page-title">추천 출발시각을 찾았어요</h1><p>실시간 교통 흐름과 도착 여유시간을 반영한 결과입니다.</p></div>
+              <span class="updated"><i></i> 방금 업데이트</span>
+            </div>
+            <div class="results-grid">
+              <div class="route-list" id="route-list"></div>
+              <div class="result-detail">
+                <div class="map" id="route-map"></div>
+                <section class="chart-card" id="duration-chart" aria-label="출발시각별 예상 소요시간" aria-busy="true"><p role="status">소요시간 그래프를 준비하고 있습니다.</p></section>
+                <section class="ai-card" id="ai-summary" aria-label="AI 경로 추천 요약" aria-busy="true"><p class="ai-status" role="status">AI 경로 요약을 준비하고 있습니다.</p></section>
+              </div>
             </div>
           </div>
         </div>
@@ -50,6 +60,6 @@
   </div>
 
   <script type="module" src="/js/components/header.js"></script>
-  <script type="module" src="/js/pages/result.js?v=apiconfig-20261124-1"></script>
+  <script type="module" src="/js/pages/result.js?v=qur001-20261128-1"></script>
 </body>
 </html>

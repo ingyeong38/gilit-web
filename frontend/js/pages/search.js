@@ -1,5 +1,5 @@
 import { USE_MOCK_ROUTES as USE_MOCK } from "/js/config.js";
-import { setupAutocomplete } from "/js/components/placeAutocomplete.js";
+import { setupAutocomplete } from "/js/components/placeAutocomplete.js?v=qur001-20261128-1";
 import { getFavorites, getHistory } from "/js/api.js";
 import { getUser, initializeAuth, isRedirecting, onAuthChange, recheckAuth } from "/js/auth.js";
 import { icon, renderIcons } from "/js/components/icon.js";
@@ -42,6 +42,7 @@ let buffer = DEFAULT_BUFFER;
 let submitting = false;
 let navigationTimer;
 const autocompletes = [];
+let invalidField;
 
 function setBuffer(value) {
   buffer = value;
@@ -75,14 +76,33 @@ function fillForm() {
   setBuffer(isKnownBuffer ? queryBuffer : DEFAULT_BUFFER);
 }
 
+function validationControl(field) {
+  return field === "buffer" ? bufferButtons[0] : form.elements[field];
+}
+
+function clearValidation(field) {
+  if (!invalidField || (field && field !== invalidField)) return;
+  const message = document.getElementById(`${invalidField}-error`);
+  message.textContent = "";
+  message.hidden = true;
+  validationControl(invalidField).removeAttribute("aria-invalid");
+  invalidField = undefined;
+}
+
 function showValidation(error) {
-  showToast(error.message, { error: true });
-  const control = error.field === "buffer" ? bufferButtons[0] : form.elements[error.field];
+  clearValidation();
+  invalidField = error.field;
+  const message = document.getElementById(`${error.field}-error`);
+  message.textContent = error.message;
+  message.hidden = false;
+  const control = validationControl(error.field);
+  control.setAttribute("aria-invalid", "true");
   control.focus();
 }
 
 function goToResult(data) {
   if (submitting) return;
+  clearValidation();
   const error = validateSearchConditions(data);
   if (error) { showValidation(error); return; }
   autocompletes.forEach((autocomplete) => autocomplete.close());
@@ -99,8 +119,6 @@ function submit() {
   if (submitting) return;
   const from = fromInput.value.trim();
   const to = toInput.value.trim();
-  fromInput.value = from;
-  toInput.value = to;
   const coordinates = {};
   ["from", "to"].forEach((prefix, index) => {
     const place = autocompletes[index].getPlace();
@@ -123,6 +141,7 @@ function renderQuickPlaces(favorites) {
     button.addEventListener("click", () => {
       autocompletes.forEach((autocomplete) => autocomplete.close());
       fromInput.value = place.name;
+      clearValidation("from");
       // 즐겨찾기 좌표를 출발지 선택값으로 넣어 경로 조회가 이름 검색(422) 대신 좌표를 쓰게 한다. 없으면 이전 선택을 비운다.
       const { fromLat: lat, fromLng: lng } = historyCoordinates({ fromLat: place.lat, fromLng: place.lng });
       autocompletes[0].setPlace(lat === undefined ? null : { name: place.name, lat, lng });
@@ -191,7 +210,10 @@ async function loadSavedData() {
 renderIcons();
 fillForm();
 setLoading(false);
-autocompletes.push(setupAutocomplete(fromInput), setupAutocomplete(toInput));
+autocompletes.push(
+  setupAutocomplete(fromInput, { onChange: place => { if (place) clearValidation("from"); } }),
+  setupAutocomplete(toInput, { onChange: place => { if (place) clearValidation("to"); } }),
+);
 const restoredQuery = new URLSearchParams(location.search);
 // 쿼리 좌표(조건 수정, 즐겨찾기 "여기서 출발"·카드)를 선택된 장소로 복원한다. 범위 밖·숫자 아님은 무시한다.
 // 입력칸을 고치면 자동완성이 선택을 풀고(getPlace는 이름이 같을 때만 돌려준다) 이전 좌표로 조회하지 않는다.
@@ -220,15 +242,28 @@ initializeAuth().then(() => {
 });
 
 bufferButtons.forEach((button) => {
-  button.addEventListener("click", () => setBuffer(button.dataset.buffer));
+  button.addEventListener("click", () => {
+    setBuffer(button.dataset.buffer);
+    clearValidation("buffer");
+  });
 });
 document.getElementById("swap-button").addEventListener("click", () => {
   const selected = autocompletes.map((autocomplete) => autocomplete.getPlace());
   autocompletes.forEach((autocomplete) => autocomplete.close());
   [fromInput.value, toInput.value] = [toInput.value, fromInput.value];
+  clearValidation("from");
+  clearValidation("to");
   autocompletes[0].setPlace(selected[1]);
   autocompletes[1].setPlace(selected[0]);
 });
+for (const input of [fromInput, toInput, dateInput, timeInput]) {
+  input.addEventListener("input", () => {
+    clearValidation(input.name);
+    if (input === fromInput && toInput.value.trim() && fromInput.value.trim() !== toInput.value.trim()) {
+      clearValidation("to");
+    }
+  });
+}
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   submit();

@@ -234,7 +234,7 @@ function setup({ pathname = '/pages/search.html', result = '', search = result, 
   assert.match(searchSource, /if \(!loggedIn \|\| isRedirecting\(\)\) return;/);
   assert.match(await read('../js/pages/result.js'), /if \(!getUser\(\) \|\| isRedirecting\(\)\) return;/);
   const html = await read('../pages/result.html');
-  assert.match(html, /result\.js\?v=apiconfig-20261124-1"/);
-  assert.match(html, /result\.css\?v=apiconfig-20261124-1"/);
+  const version = html.match(/result\.js\?v=([\w-]+)"/)[1];
+  assert.equal(html.match(/result\.css\?v=([\w-]+)"/)[1], version);
   console.log('PASS: 이동 중 저장 데이터 요청 차단(검색·결과 화면), result.js 버전 갱신');
 }
